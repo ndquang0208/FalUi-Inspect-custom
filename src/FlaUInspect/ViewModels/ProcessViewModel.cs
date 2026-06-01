@@ -113,12 +113,15 @@ public class ProcessViewModel : ObservableObject {
 
         ClearRecordingCommand = new RelayCommand(_ => RecordedSteps.Clear());
 
-        ClearSearchCommand = new RelayCommand(_ => {
-            SearchText = string.Empty;
-            ApplySearchFilter();
+        ApplySearchCommand = new AsyncRelayCommand(async () => {
+            if (IsSearching) return;
+            IsSearching = true;
+            try {
+                await Task.Run(RunSearchOnBackground);
+            } finally {
+                IsSearching = false;
+            }
         });
-
-        ApplySearchCommand = new RelayCommand(_ => ApplySearchFilter());
 
         CopyAllStepsCommand = new RelayCommand(_ => {
             if (RecordedSteps.Count == 0) return;
@@ -192,8 +195,17 @@ public class ProcessViewModel : ObservableObject {
     public ICommand CopyDetailsToClipboardCommand { get; }
     public ICommand ClearRecordingCommand { get; }
     public ICommand CopyAllStepsCommand { get; }
-    public ICommand ClearSearchCommand { get; }
     public ICommand ApplySearchCommand { get; }
+
+    public bool IsSearching {
+        get => GetProperty<bool>();
+        set => SetProperty(value);
+    }
+
+    public bool IsAlwaysOnTop {
+        get => GetProperty<bool>();
+        set => SetProperty(value);
+    }
 
     public string? SearchText {
         get => GetProperty<string>();
@@ -377,55 +389,35 @@ public class ProcessViewModel : ObservableObject {
         });
     }
 
-    private void ApplySearchFilter() {
+    private void RunSearchOnBackground() {
         string? query = SearchText;
         SearchScope scope = SearchScope;
         bool hasQuery = !string.IsNullOrWhiteSpace(query);
+        System.Windows.Threading.Dispatcher dispatcher = System.Windows.Application.Current.Dispatcher;
 
         if (hasQuery && query!.Length >= 2) {
-            ExpandTreeForSearch(Elements.ToList(), query, scope, maxDepth: 8);
+            List<ElementViewModel> snapshot = dispatcher.Invoke(() => Elements.ToList());
+            foreach (ElementViewModel vm in snapshot) {
+                ExpandSubtreeForSearchBg(vm, query, scope, maxDepth: 8, currentDepth: 0, dispatcher);
+            }
         }
 
-        foreach (ElementViewModel vm in Elements) {
-            vm.IsMatch = hasQuery && vm.Matches(query!, scope);
-        }
-
-        ICollectionView view = CollectionViewSource.GetDefaultView(Elements);
-        if (!hasQuery) {
-            view.Filter = null;
-        } else {
-            view.Filter = o => {
-                if (o is not ElementViewModel vm) return false;
-                if (vm.Matches(query!, scope)) return true;
-                ElementViewModel? p = vm.Parent;
-                while (p != null) {
-                    if (p.Matches(query!, scope)) return true;
-                    p = p.Parent;
+        dispatcher.Invoke(() => {
+            ElementViewModel? firstMatch = null;
+            foreach (ElementViewModel vm in Elements) {
+                vm.IsMatch = hasQuery && vm.Matches(query!, scope);
+                if (vm.IsMatch && firstMatch == null) firstMatch = vm;
+            }
+            if (hasQuery) {
+                EnableHighLightSelectionMode = true;
+                if (firstMatch != null) {
+                    SelectedItem = firstMatch;
                 }
-                return HasMatchingDescendant(vm, query!, scope);
-            };
-        }
-        view.Refresh();
+            }
+        });
     }
 
-    private bool HasMatchingDescendant(ElementViewModel parent, string query, SearchScope scope) {
-        int idx = Elements.IndexOf(parent);
-        if (idx < 0) return false;
-        for (int i = idx + 1; i < Elements.Count; i++) {
-            ElementViewModel cur = Elements[i];
-            if (cur.Level <= parent.Level) break;
-            if (cur.Matches(query, scope)) return true;
-        }
-        return false;
-    }
-
-    private void ExpandTreeForSearch(IList<ElementViewModel> snapshot, string query, SearchScope scope, int maxDepth) {
-        foreach (ElementViewModel vm in snapshot) {
-            ExpandSubtreeForSearch(vm, query, scope, maxDepth, currentDepth: 0);
-        }
-    }
-
-    private void ExpandSubtreeForSearch(ElementViewModel vm, string query, SearchScope scope, int maxDepth, int currentDepth) {
+    private void ExpandSubtreeForSearchBg(ElementViewModel vm, string query, SearchScope scope, int maxDepth, int currentDepth, System.Windows.Threading.Dispatcher dispatcher) {
         if (currentDepth >= maxDepth || vm.AutomationElement == null) return;
 
         List<ElementViewModel> children;
@@ -436,22 +428,29 @@ public class ProcessViewModel : ObservableObject {
         }
         if (children.Count == 0) return;
 
-        bool anyMatchInSubtree = SubtreeContainsMatch(children, query, scope, maxDepth - currentDepth - 1);
-        if (!anyMatchInSubtree) return;
+        if (!SubtreeContainsMatch(children, query, scope, maxDepth - currentDepth - 1)) return;
 
-        if (!vm.IsExpanded) {
-            vm.IsExpanded = true;
-            ExpandElement(vm);
-        }
-
-        int parentIdx = Elements.IndexOf(vm);
-        if (parentIdx < 0) return;
-        for (int i = parentIdx + 1; i < Elements.Count; i++) {
-            ElementViewModel cur = Elements[i];
-            if (cur.Level <= vm.Level) break;
-            if (cur.Level == vm.Level + 1) {
-                ExpandSubtreeForSearch(cur, query, scope, maxDepth, currentDepth + 1);
+        dispatcher.Invoke(() => {
+            if (!vm.IsExpanded) {
+                vm.IsExpanded = true;
+                ExpandElement(vm);
             }
+        });
+
+        List<ElementViewModel> directChildren = dispatcher.Invoke(() => {
+            List<ElementViewModel> result = [];
+            int parentIdx = Elements.IndexOf(vm);
+            if (parentIdx < 0) return result;
+            for (int i = parentIdx + 1; i < Elements.Count; i++) {
+                ElementViewModel cur = Elements[i];
+                if (cur.Level <= vm.Level) break;
+                if (cur.Level == vm.Level + 1) result.Add(cur);
+            }
+            return result;
+        });
+
+        foreach (ElementViewModel c in directChildren) {
+            ExpandSubtreeForSearchBg(c, query, scope, maxDepth, currentDepth + 1, dispatcher);
         }
     }
 

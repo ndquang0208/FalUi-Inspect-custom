@@ -13,6 +13,7 @@
         d:DataContext="{d:DesignInstance viewModels:ProcessViewModel}"
         Background="{DynamicResource PrimaryWindowBackgroundBrush}"
         Closed="ProcessWindowOnClosed"
+        Topmost="{Binding IsAlwaysOnTop}"
         mc:Ignorable="d">
     <Window.Resources>
         <ResourceDictionary>
@@ -268,6 +269,20 @@
                            HorizontalAlignment="Center"
                            VerticalAlignment="Center" />
             </ToggleButton>
+
+            <ToggleButton IsChecked="{Binding IsAlwaysOnTop}"
+                          Style="{StaticResource RibbonToggleButtonStyle}">
+                <ButtonBase.ToolTip>
+                    <TextBlock>
+                        Always on Top.<LineBreak />
+                        Keep this inspector window above all other windows.</TextBlock>
+                </ButtonBase.ToolTip>
+                <TextBlock Text="TOP"
+                           FontSize="9"
+                           FontWeight="Bold"
+                           HorizontalAlignment="Center"
+                           VerticalAlignment="Center" />
+            </ToggleButton>
         </StackPanel>
         <Grid>
             <Grid.Resources />
@@ -293,36 +308,47 @@
                     </Grid.RowDefinitions>
 
                     <Grid Grid.Row="0" Margin="2,2,2,4">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <ComboBox Grid.Column="0"
-                                  x:Name="SearchScopeCombo"
-                                  MinWidth="100"
-                                  Margin="0,0,4,0"
-                                  VerticalContentAlignment="Center"
-                                  ToolTip="Choose which field to filter by"
-                                  ItemsSource="{Binding SearchScopes}"
-                                  SelectedItem="{Binding SearchScope}" />
-                        <TextBox Grid.Column="1"
-                                 x:Name="SearchTextBox"
-                                 Padding="4,2"
-                                 VerticalContentAlignment="Center"
-                                 ToolTip="Type to filter, press Enter to search (case-insensitive). Auto-expand with 2+ chars."
-                                 Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}">
-                            <TextBox.InputBindings>
-                                <KeyBinding Key="Return" Command="{Binding ApplySearchCommand}" />
-                            </TextBox.InputBindings>
-                        </TextBox>
-                        <Button Grid.Column="2"
-                                Content="×"
-                                Width="24"
-                                Margin="2,0,0,0"
-                                FontWeight="Bold"
-                                ToolTip="Clear filter"
-                                Command="{Binding ClearSearchCommand}" />
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <Grid Grid.Row="0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <ComboBox Grid.Column="0"
+                                      x:Name="SearchScopeCombo"
+                                      MinWidth="100"
+                                      Margin="0,0,4,0"
+                                      VerticalContentAlignment="Center"
+                                      ToolTip="Choose which field to filter by"
+                                      ItemsSource="{Binding SearchScopes}"
+                                      SelectedItem="{Binding SearchScope}" />
+                            <TextBox Grid.Column="1"
+                                     x:Name="SearchTextBox"
+                                     Padding="4,2"
+                                     VerticalContentAlignment="Center"
+                                     ToolTip="Type and press Enter or click Search (case-insensitive). Matches are highlighted; tree is not filtered."
+                                     Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}">
+                                <TextBox.InputBindings>
+                                    <KeyBinding Key="Return" Command="{Binding ApplySearchCommand}" />
+                                </TextBox.InputBindings>
+                            </TextBox>
+                            <Button Grid.Column="2"
+                                    Content="Search"
+                                    Padding="8,2"
+                                    Margin="2,0,0,0"
+                                    FontWeight="SemiBold"
+                                    ToolTip="Search (Enter)"
+                                    Command="{Binding ApplySearchCommand}" />
+                        </Grid>
+                        <ProgressBar Grid.Row="1"
+                                     Height="2"
+                                     Margin="0,2,0,0"
+                                     IsIndeterminate="True"
+                                     Visibility="{Binding IsSearching, Converter={StaticResource BooleanToVisibilityConverter}}" />
                     </Grid>
 
                     <ListView Grid.Row="1"
@@ -522,13 +548,19 @@
                 <!-- ═══ Locator tab (recorded steps) ═══ -->
                 <TabItem Header="Locator">
                     <DockPanel LastChildFill="True">
-                        <Button DockPanel.Dock="Top"
-                                Content="Copy All Steps"
-                                Margin="4,4,4,2"
-                                Padding="8,4"
-                                HorizontalAlignment="Left"
-                                ToolTip="Copy all recorded steps to clipboard"
-                                Command="{Binding CopyAllStepsCommand}" />
+                        <StackPanel DockPanel.Dock="Top"
+                                    Orientation="Horizontal"
+                                    Margin="4,4,4,2">
+                            <Button Content="Copy All Steps"
+                                    Padding="8,4"
+                                    Margin="0,0,4,0"
+                                    ToolTip="Copy all recorded steps to clipboard"
+                                    Command="{Binding CopyAllStepsCommand}" />
+                            <Button Content="Clear All Steps"
+                                    Padding="8,4"
+                                    ToolTip="Remove all recorded steps"
+                                    Command="{Binding ClearRecordingCommand}" />
+                        </StackPanel>
                     <Grid>
                         <ScrollViewer VerticalScrollBarVisibility="Auto">
                             <ItemsControl ItemsSource="{Binding RecordedSteps}">
