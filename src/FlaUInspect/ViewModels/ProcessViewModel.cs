@@ -1,9 +1,11 @@
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Windows;
+using System.Windows.Data;
 using System.Windows.Input;
 using FlaUI.Core;
 using FlaUI.Core.AutomationElements;
@@ -111,6 +113,13 @@ public class ProcessViewModel : ObservableObject {
 
         ClearRecordingCommand = new RelayCommand(_ => RecordedSteps.Clear());
 
+        ClearSearchCommand = new RelayCommand(_ => {
+            SearchText = string.Empty;
+            ApplySearchFilter();
+        });
+
+        ApplySearchCommand = new RelayCommand(_ => ApplySearchFilter());
+
         CopyAllStepsCommand = new RelayCommand(_ => {
             if (RecordedSteps.Count == 0) return;
             var sb = new System.Text.StringBuilder();
@@ -183,6 +192,24 @@ public class ProcessViewModel : ObservableObject {
     public ICommand CopyDetailsToClipboardCommand { get; }
     public ICommand ClearRecordingCommand { get; }
     public ICommand CopyAllStepsCommand { get; }
+    public ICommand ClearSearchCommand { get; }
+    public ICommand ApplySearchCommand { get; }
+
+    public string? SearchText {
+        get => GetProperty<string>();
+        set => SetProperty(value);
+    }
+
+    public SearchScope SearchScope {
+        get => GetProperty<SearchScope>();
+        set => SetProperty(value);
+    }
+
+    public IReadOnlyList<SearchScope> SearchScopes { get; } = new[] {
+        SearchScope.Name,
+        SearchScope.AutomationId,
+        SearchScope.XPath
+    };
 
     public bool IsRecording {
         get => GetProperty<bool>();
@@ -306,37 +333,141 @@ public class ProcessViewModel : ObservableObject {
     public event Action CopiedNotificationRequested;
 
     public void Initialize() {
-        _patternItemsFactory = new PatternItemsFactory(_automation);
+        PatternItemsFactory patternItemsFactory = new (_automation);
 
-        _rootElement = _windowHandle == IntPtr.Zero
-            ? _automation.GetDesktop()
-            : _automation.FromHandle(_windowHandle);
+        AutomationElement? rootElement;
+        List<ElementViewModel> topChildren;
+        try {
+            rootElement = _windowHandle == IntPtr.Zero
+                ? _automation.GetDesktop()
+                : _automation.FromHandle(_windowHandle);
 
-        ElementViewModel desktopViewModel = new (_rootElement, null, 0, _logger);
+            ElementViewModel desktopViewModel = new (rootElement, null, 0, _logger);
+            topChildren = desktopViewModel.LoadChildren();
+        } catch (Exception ex) {
+            _logger?.LogError($"Initialize UIA load failed: {ex.Message}");
+            return;
+        }
 
-        List<ElementViewModel> topChildren = desktopViewModel.LoadChildren();
+        FocusTrackingMode newFocusTracker = new (_automation,
+            x => {
+                if (EnableFocusTrackingMode || IsAutoRecording) {
+                    ElementToSelectChanged(x);
+                    if (IsAutoRecording && SelectedItem != null) {
+                        RecordElement(SelectedItem);
+                    }
+                }
+            });
 
-        Elements = new ObservableCollection<ElementViewModel>(topChildren);
+        System.Windows.Threading.Dispatcher dispatcher = System.Windows.Application.Current.Dispatcher;
+        dispatcher.Invoke(() => {
+            _patternItemsFactory = patternItemsFactory;
+            _rootElement = rootElement;
 
-        // Initialize hover
-        EnableHoverMode = false;
+            _focusTrackingMode?.Stop();
+            _focusTrackingMode = newFocusTracker;
 
-        // Initialize focus tracking
-        _focusTrackingMode = new FocusTrackingMode(_automation,
-                                                   x => {
-                                                       if (EnableFocusTrackingMode || IsAutoRecording) {
-                                                           ElementToSelectChanged(x);
-                                                           if (IsAutoRecording && SelectedItem != null) {
-                                                               RecordElement(SelectedItem);
-                                                           }
-                                                       }
-                                                   });
+            Elements = new ObservableCollection<ElementViewModel>(topChildren);
+            EnableHoverMode = false;
+            ElementPatterns = GetDefaultPatternList();
+            SelectedItem = Elements.Count == 0 ? null : Elements[0];
 
-        ElementPatterns = GetDefaultPatternList();
-        SelectedItem = Elements.Count == 0 ? null : Elements[0];
+            OnPropertyChanged(nameof(Elements));
+            OnPropertyChanged(nameof(ElementPatterns));
+        });
+    }
 
-        OnPropertyChanged(nameof(Elements));
-        OnPropertyChanged(nameof(ElementPatterns));
+    private void ApplySearchFilter() {
+        string? query = SearchText;
+        SearchScope scope = SearchScope;
+        bool hasQuery = !string.IsNullOrWhiteSpace(query);
+
+        if (hasQuery && query!.Length >= 2) {
+            ExpandTreeForSearch(Elements.ToList(), query, scope, maxDepth: 8);
+        }
+
+        foreach (ElementViewModel vm in Elements) {
+            vm.IsMatch = hasQuery && vm.Matches(query!, scope);
+        }
+
+        ICollectionView view = CollectionViewSource.GetDefaultView(Elements);
+        if (!hasQuery) {
+            view.Filter = null;
+        } else {
+            view.Filter = o => {
+                if (o is not ElementViewModel vm) return false;
+                if (vm.Matches(query!, scope)) return true;
+                ElementViewModel? p = vm.Parent;
+                while (p != null) {
+                    if (p.Matches(query!, scope)) return true;
+                    p = p.Parent;
+                }
+                return HasMatchingDescendant(vm, query!, scope);
+            };
+        }
+        view.Refresh();
+    }
+
+    private bool HasMatchingDescendant(ElementViewModel parent, string query, SearchScope scope) {
+        int idx = Elements.IndexOf(parent);
+        if (idx < 0) return false;
+        for (int i = idx + 1; i < Elements.Count; i++) {
+            ElementViewModel cur = Elements[i];
+            if (cur.Level <= parent.Level) break;
+            if (cur.Matches(query, scope)) return true;
+        }
+        return false;
+    }
+
+    private void ExpandTreeForSearch(IList<ElementViewModel> snapshot, string query, SearchScope scope, int maxDepth) {
+        foreach (ElementViewModel vm in snapshot) {
+            ExpandSubtreeForSearch(vm, query, scope, maxDepth, currentDepth: 0);
+        }
+    }
+
+    private void ExpandSubtreeForSearch(ElementViewModel vm, string query, SearchScope scope, int maxDepth, int currentDepth) {
+        if (currentDepth >= maxDepth || vm.AutomationElement == null) return;
+
+        List<ElementViewModel> children;
+        try {
+            children = vm.LoadChildren();
+        } catch {
+            return;
+        }
+        if (children.Count == 0) return;
+
+        bool anyMatchInSubtree = SubtreeContainsMatch(children, query, scope, maxDepth - currentDepth - 1);
+        if (!anyMatchInSubtree) return;
+
+        if (!vm.IsExpanded) {
+            vm.IsExpanded = true;
+            ExpandElement(vm);
+        }
+
+        int parentIdx = Elements.IndexOf(vm);
+        if (parentIdx < 0) return;
+        for (int i = parentIdx + 1; i < Elements.Count; i++) {
+            ElementViewModel cur = Elements[i];
+            if (cur.Level <= vm.Level) break;
+            if (cur.Level == vm.Level + 1) {
+                ExpandSubtreeForSearch(cur, query, scope, maxDepth, currentDepth + 1);
+            }
+        }
+    }
+
+    private static bool SubtreeContainsMatch(List<ElementViewModel> children, string query, SearchScope scope, int remainingDepth) {
+        if (remainingDepth < 0) return false;
+        foreach (ElementViewModel c in children) {
+            if (c.Matches(query, scope)) return true;
+            if (remainingDepth == 0) continue;
+            try {
+                List<ElementViewModel> grand = c.LoadChildren();
+                if (SubtreeContainsMatch(grand, query, scope, remainingDepth - 1)) return true;
+            } catch {
+                // ignored
+            }
+        }
+        return false;
     }
 
     public void ElementToSelectChanged(AutomationElement? obj, bool forceExpand = false) {

@@ -287,7 +287,46 @@
                       Header="Elements"
                       Style="{StaticResource GroupBoxStyle}">
                 <Grid>
-                    <ListView x:Name="TreeViewControl"
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+
+                    <Grid Grid.Row="0" Margin="2,2,2,4">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <ComboBox Grid.Column="0"
+                                  x:Name="SearchScopeCombo"
+                                  MinWidth="100"
+                                  Margin="0,0,4,0"
+                                  VerticalContentAlignment="Center"
+                                  ToolTip="Choose which field to filter by"
+                                  ItemsSource="{Binding SearchScopes}"
+                                  SelectedItem="{Binding SearchScope}" />
+                        <TextBox Grid.Column="1"
+                                 x:Name="SearchTextBox"
+                                 Padding="4,2"
+                                 VerticalContentAlignment="Center"
+                                 ToolTip="Type to filter, press Enter to search (case-insensitive). Auto-expand with 2+ chars."
+                                 Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}">
+                            <TextBox.InputBindings>
+                                <KeyBinding Key="Return" Command="{Binding ApplySearchCommand}" />
+                            </TextBox.InputBindings>
+                        </TextBox>
+                        <Button Grid.Column="2"
+                                Content="×"
+                                Width="24"
+                                Margin="2,0,0,0"
+                                FontWeight="Bold"
+                                ToolTip="Clear filter"
+                                Command="{Binding ClearSearchCommand}" />
+                    </Grid>
+
+                    <ListView Grid.Row="1"
+                              x:Name="TreeViewControl"
                               ItemsSource="{Binding Elements}"
                               ScrollViewer.CanContentScroll="True"
                               SelectedItem="{Binding SelectedItem}"
@@ -322,6 +361,16 @@
 
                                     <TextBlock Margin="4,0,0,0"
                                                ToolTip="{Binding}">
+                                        <TextBlock.Style>
+                                            <Style TargetType="TextBlock">
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding IsMatch}" Value="True">
+                                                        <Setter Property="FontWeight" Value="Bold" />
+                                                        <Setter Property="Foreground" Value="#FFE08A1F" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBlock.Style>
                                         <TextBlock.Text>
                                             <MultiBinding StringFormat="{}{0} &quot;{1}&quot; &quot;{2}&quot;">
                                                 <Binding Path="ControlType" />
@@ -335,7 +384,8 @@
                         </ListView.ItemTemplate>
                     </ListView>
 
-                    <TextBlock HorizontalAlignment="Center"
+                    <TextBlock Grid.Row="1"
+                               HorizontalAlignment="Center"
                                VerticalAlignment="Center"
                                Text="Loading ..."
                                Visibility="{Binding Elements.Count, Converter={StaticResource IntToVisibilityConverter}, ConverterParameter=EqualsZero}" />

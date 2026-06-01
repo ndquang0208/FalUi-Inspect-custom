@@ -7,6 +7,12 @@ using FlaUInspect.Core.Logger;
 
 namespace FlaUInspect.ViewModels;
 
+public enum SearchScope {
+    Name,
+    AutomationId,
+    XPath
+}
+
 public class ElementViewModel : ObservableObject {
     private readonly string _guidId;
 
@@ -39,6 +45,11 @@ public class ElementViewModel : ObservableObject {
         set => SetProperty(value);
     }
 
+    public bool IsMatch {
+        get => GetProperty<bool>();
+        set => SetProperty(value);
+    }
+
     public int Level { get; }
 
     public string Name { get; }
@@ -46,10 +57,28 @@ public class ElementViewModel : ObservableObject {
     public string AutomationId { get; }
 
     public ControlType ControlType { get; }
-    public string XPath => AutomationElement == null ? string.Empty : Debug.GetXPathToElement(AutomationElement);
+
+    private string? _xpathCache;
+    public string XPath {
+        get {
+            if (_xpathCache != null) return _xpathCache;
+            _xpathCache = AutomationElement == null ? string.Empty : Debug.GetXPathToElement(AutomationElement);
+            return _xpathCache;
+        }
+    }
 
     public override string ToString() {
         return $"{Name} [{ControlType}] : {AutomationId}";
+    }
+
+    public bool Matches(string query, SearchScope scope) {
+        if (string.IsNullOrEmpty(query)) return false;
+        return scope switch {
+            SearchScope.Name => Name?.Contains(query, StringComparison.OrdinalIgnoreCase) ?? false,
+            SearchScope.AutomationId => AutomationId?.Contains(query, StringComparison.OrdinalIgnoreCase) ?? false,
+            SearchScope.XPath => XPath?.Contains(query, StringComparison.OrdinalIgnoreCase) ?? false,
+            _ => false
+        };
     }
 
     public List<ElementViewModel> LoadChildren() {
