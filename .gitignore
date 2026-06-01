@@ -1,0 +1,15 @@
+# Build Results
+bin/
+obj/
+
+# Cake Build
+.chocoapikey
+
+# Visual Studio cache/options directory
+.vs/
+
+# Artifacts
+artifacts/
+src/.idea/
+*.user
+desktop.ini
