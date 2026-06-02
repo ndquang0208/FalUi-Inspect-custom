@@ -75,8 +75,14 @@ public partial class ProcessWindow : Window {
     }
 
     private void TreeOnSelectionChanged(object sender, SelectionChangedEventArgs e) {
-        ListViewItem? container = TreeViewControl.ItemContainerGenerator.ContainerFromItem(TreeViewControl.SelectedItem) as ListViewItem;
-        container?.BringIntoView();
+        object? selected = TreeViewControl.SelectedItem;
+        if (selected == null) return;
+        TreeViewControl.ScrollIntoView(selected);
+        Dispatcher.BeginInvoke(new Action(() => {
+            if (TreeViewControl.ItemContainerGenerator.ContainerFromItem(selected) is ListViewItem container) {
+                container.BringIntoView();
+            }
+        }), System.Windows.Threading.DispatcherPriority.Background);
     }
 
     private void ToggleButton_Click(object sender, RoutedEventArgs e) {

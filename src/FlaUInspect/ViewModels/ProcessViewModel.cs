@@ -134,7 +134,7 @@ public class ProcessViewModel : ObservableObject {
         if (list.Count == 0) return;
         var sb = new System.Text.StringBuilder();
         foreach (var step in list) {
-            sb.AppendLine($"Step {step.StepNumber}  |  {step.ControlTypeStr}  |  \"{step.ElementName}\"");
+            sb.AppendLine($"{step.Label}  |  {step.ControlTypeStr}  |  \"{step.ElementName}\"");
             sb.AppendLine($"Window  : {step.WindowLocator}");
             sb.AppendLine($"Dialog  : {step.DialogLocator}");
             sb.AppendLine($"[1] AutomationId : {step.AutomationIdLocator}");
@@ -233,20 +233,36 @@ public class ProcessViewModel : ObservableObject {
 
     public bool IsRecording {
         get => GetProperty<bool>();
-        set => SetProperty(value);
+        set {
+            if (SetProperty(value) && value) {
+                IsAutoRecording = false;
+                IsDialogCapturing = false;
+            }
+        }
     }
 
     public bool IsAutoRecording {
         get => GetProperty<bool>();
         set {
-            SetProperty(value);
-            SetMode();
+            bool changed = SetProperty(value);
+            if (changed && value) {
+                IsRecording = false;
+                IsDialogCapturing = false;
+            }
+            if (changed) {
+                SetMode();
+            }
         }
     }
 
     public bool IsDialogCapturing {
         get => GetProperty<bool>();
-        set => SetProperty(value);
+        set {
+            if (SetProperty(value) && value) {
+                IsRecording = false;
+                IsAutoRecording = false;
+            }
+        }
     }
 
     public bool IsCapturingDialog {

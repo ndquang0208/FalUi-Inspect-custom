@@ -14,6 +14,7 @@ public class RecordedStep : ObservableObject {
 
         ControlTypeStr = element.ControlType.ToString();
         ElementName = string.IsNullOrEmpty(element.Name) ? "(none)" : element.Name;
+        Label = element.ControlType == ControlType.Window ? "Window Element" : "Element";
 
         var ancestors = BuildAncestorChain(element);
 
@@ -51,7 +52,7 @@ public class RecordedStep : ObservableObject {
         });
         CopyAllCommand = new RelayCommand(_ => {
             var sb = new StringBuilder();
-            sb.AppendLine($"Step {StepNumber}  |  {ControlTypeStr}  |  \"{ElementName}\"");
+            sb.AppendLine($"{Label}  |  {ControlTypeStr}  |  \"{ElementName}\"");
             sb.AppendLine($"Window  : {WindowLocator}");
             sb.AppendLine($"Dialog  : {DialogLocator}");
             sb.AppendLine($"[1] AutomationId : {AutomationIdLocator}");
@@ -71,6 +72,7 @@ public class RecordedStep : ObservableObject {
     public ElementViewModel Element { get; }
     public string ControlTypeStr { get; }
     public string ElementName { get; }
+    public string Label { get; }
     public string WindowLocator { get; }
     public string DialogLocator { get; }
     public string AutomationIdLocator { get; }

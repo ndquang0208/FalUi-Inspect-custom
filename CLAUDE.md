@@ -82,15 +82,32 @@ All three are mutually exclusive radio buttons. `SetMode()` is called on every m
 | `EnableHighLightSelectionMode` | Manual tree click | `TrackSelectedItem` shows overlay on selection |
 | `EnableFocusTrackingMode` | Tab/focus in target app | `FocusTrackingMode` (UIA `FocusChangedEvent`) |
 
-`IsAutoRecording` (AUTO button) independently starts focus tracking regardless of the radio selection and auto-appends every focused element to `RecordedSteps`.
+`IsAutoRecording` (AUTO button) starts focus tracking regardless of the radio selection and auto-appends every focused element to `RecordedSteps`.
+
+### Recording Modes (REC / AUTO / WIN) — mutually exclusive
+
+> ⚠️ **Important:** `IsRecording` (REC), `IsAutoRecording` (AUTO), and `IsDialogCapturing` (WIN, was DLG) are **mutually exclusive**. Their setters in `ProcessViewModel` force the other two to `false` when one is enabled. Reason: enabling AUTO while REC was on previously caused REC's `Ctrl+Click` to appear broken because AUTO's focus-driven auto-record fired in parallel and the user couldn't tell whose step was being added.
+
+The toolbar button **CLR** was removed — use the **Clear All Steps** button inside the Locator/Window tabs instead. The **DLG** toggle was renamed to **WIN** (and the "Dialog" tab header → "Window") because there is no separate UIA Dialog control type; it captures any window-root subtree.
+
+### Toggle button visual state
+
+> ⚠️ The default WPF `ToggleButton` template has no checked-state visual. `Controls/ToggleButtons.xaml` now defines `Button.Checked.Background/Border/Foreground` (uses `AccentColor`, white text) and an `IsChecked=True` trigger on the template so REC / AUTO / WIN / TOP visibly highlight when active. Any new ribbon toggle must use `RibbonToggleButtonStyle` to inherit this.
+
+### Hover scroll-into-view
+
+`ProcessWindow.TreeOnSelectionChanged` first calls `ListView.ScrollIntoView(selected)` (virtualization-safe), then queues a background-priority `BringIntoView` once the container is realized. The earlier `ContainerFromItem` + `BringIntoView` alone failed silently when the selected element was outside the realized viewport — important for hover/focus tracking that selects deep elements off-screen.
 
 ### Recording & Locator Panel
 
 `RecordedSteps` (`ObservableCollection<RecordedStep>`) is populated by:
 - **Manual (REC):** `Ctrl+Click` on a tree item → `ProcessViewModel.RecordElement()`
 - **Auto (AUTO):** every focus-change callback → `RecordElement(SelectedItem)`
+- **Window capture (WIN):** `Ctrl+Click` a window root → `CaptureDialogTree()` enumerates the subtree into `DialogCapturedSteps` (the "Window" tab).
 
 `RecordedStep` computes all locators once in its constructor from the element's `Parent` chain (available because tree expansion sets `ElementViewModel.Parent`). It generates a custom XPath walking from the root `Window` down: `ControlType[@AutomationId='x']` if AutomationId present, else `ControlType[N]` using sibling index via `FindAllChildren()`.
+
+The card header is **`Label  |  ControlType  |  "Name"`** where `Label` = `"Window Element"` when `ControlType == Window`, else `"Element"`. The numeric `StepNumber` is still tracked internally (for delete re-indexing) but no longer shown — bulk copy (`CopyAllStepsCommand` / per-step `CopyAllCommand`) uses `Label` too.
 
 ### MVVM Base
 

@@ -103,7 +103,7 @@
                             <TextBlock Grid.Column="0"
                                        FontWeight="Bold"
                                        VerticalAlignment="Center">
-                                <Run Text="Step " /><Run Text="{Binding StepNumber, Mode=OneWay}" />
+                                <Run Text="{Binding Label, Mode=OneTime}" />
                                 <Run Text="  |  " /><Run Text="{Binding ControlTypeStr, Mode=OneTime}" />
                                 <Run Text="  |  &quot;" /><Run Text="{Binding ElementName, Mode=OneTime}" /><Run Text="&quot;" />
                             </TextBlock>
@@ -380,15 +380,6 @@
                            VerticalAlignment="Center" />
             </ToggleButton>
 
-            <Button Command="{Binding ClearRecordingCommand}"
-                    Style="{StaticResource RibbonButtonStyle}"
-                    ToolTip="Clear all recorded steps">
-                <TextBlock Text="CLR"
-                           FontSize="9"
-                           HorizontalAlignment="Center"
-                           VerticalAlignment="Center" />
-            </Button>
-
             <ToggleButton IsChecked="{Binding IsAutoRecording}"
                           Style="{StaticResource RibbonToggleButtonStyle}">
                 <ButtonBase.ToolTip>
@@ -407,10 +398,10 @@
                           Style="{StaticResource RibbonToggleButtonStyle}">
                 <ButtonBase.ToolTip>
                     <TextBlock>
-                        Dialog Capture Mode.<LineBreak />
-                        Ctrl+Click a window/dialog root in the tree to record every descendant element into the Dialog tab.</TextBlock>
+                        Window Capture Mode.<LineBreak />
+                        Ctrl+Click a window root in the tree to record every descendant element into the Window tab.</TextBlock>
                 </ButtonBase.ToolTip>
-                <TextBlock Text="DLG"
+                <TextBlock Text="WIN"
                            FontSize="9"
                            FontWeight="Bold"
                            HorizontalAlignment="Center"
@@ -717,14 +708,14 @@
                         <TextBlock HorizontalAlignment="Center"
                                    VerticalAlignment="Center"
                                    TextAlignment="Center"
-                                   Text="No steps recorded.&#x0a;Enable Record Mode (REC) and Ctrl+Click elements in the tree."
+                                   Text="No steps recorded.&#x0a;Enable Record Mode (REC) and Ctrl+Click elements in the tree,&#x0a;or enable Auto Record (AUTO)."
                                    Visibility="{Binding RecordedSteps.Count, Converter={StaticResource IntToVisibilityConverter}, ConverterParameter=EqualsZero}" />
                     </Grid>
                     </DockPanel>
                 </TabItem>
 
-                <!-- ═══ Dialog tab (captured dialog subtree) ═══ -->
-                <TabItem Header="Dialog">
+                <!-- ═══ Window tab (captured window subtree) ═══ -->
+                <TabItem Header="Window">
                     <DockPanel LastChildFill="True">
                         <StackPanel DockPanel.Dock="Top"
                                     Orientation="Horizontal"
@@ -732,11 +723,11 @@
                             <Button Content="Copy All Steps"
                                     Padding="8,4"
                                     Margin="0,0,4,0"
-                                    ToolTip="Copy all captured dialog steps to clipboard"
+                                    ToolTip="Copy all captured window steps to clipboard"
                                     Command="{Binding CopyAllDialogStepsCommand}" />
                             <Button Content="Clear All Steps"
                                     Padding="8,4"
-                                    ToolTip="Remove all captured dialog steps"
+                                    ToolTip="Remove all captured window steps"
                                     Command="{Binding ClearDialogCaptureCommand}" />
                             <ProgressBar Width="80"
                                          Height="6"
@@ -754,7 +745,7 @@
                             <TextBlock HorizontalAlignment="Center"
                                        VerticalAlignment="Center"
                                        TextAlignment="Center"
-                                       Text="No dialog captured.&#x0a;Enable Dialog Capture (DLG) and Ctrl+Click a window/dialog root in the tree."
+                                       Text="No window captured.&#x0a;Enable Window Capture (WIN) and Ctrl+Click a window root in the tree."
                                        Visibility="{Binding DialogCapturedSteps.Count, Converter={StaticResource IntToVisibilityConverter}, ConverterParameter=EqualsZero}" />
                         </Grid>
                     </DockPanel>
