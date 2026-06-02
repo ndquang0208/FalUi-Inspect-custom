@@ -123,20 +123,26 @@ public class ProcessViewModel : ObservableObject {
             }
         });
 
-        CopyAllStepsCommand = new RelayCommand(_ => {
-            if (RecordedSteps.Count == 0) return;
-            var sb = new System.Text.StringBuilder();
-            foreach (var step in RecordedSteps) {
-                sb.AppendLine($"Step {step.StepNumber}  |  {step.ControlTypeStr}  |  \"{step.ElementName}\"");
-                sb.AppendLine($"Window  : {step.WindowLocator}");
-                sb.AppendLine($"Dialog  : {step.DialogLocator}");
-                sb.AppendLine($"[1] AutomationId : {step.AutomationIdLocator}");
-                sb.AppendLine($"[2] Name         : {step.NameLocator}");
-                sb.AppendLine($"[3] XPath        : {step.XPathLocator}");
-                sb.AppendLine();
-            }
-            Clipboard.SetText(sb.ToString());
-        });
+        CopyAllStepsCommand = new RelayCommand(_ => CopyStepsToClipboard(RecordedSteps));
+
+        ClearDialogCaptureCommand = new RelayCommand(_ => DialogCapturedSteps.Clear());
+        CopyAllDialogStepsCommand = new RelayCommand(_ => CopyStepsToClipboard(DialogCapturedSteps));
+    }
+
+    private static void CopyStepsToClipboard(IEnumerable<RecordedStep> steps) {
+        var list = steps.ToList();
+        if (list.Count == 0) return;
+        var sb = new System.Text.StringBuilder();
+        foreach (var step in list) {
+            sb.AppendLine($"Step {step.StepNumber}  |  {step.ControlTypeStr}  |  \"{step.ElementName}\"");
+            sb.AppendLine($"Window  : {step.WindowLocator}");
+            sb.AppendLine($"Dialog  : {step.DialogLocator}");
+            sb.AppendLine($"[1] AutomationId : {step.AutomationIdLocator}");
+            sb.AppendLine($"[2] Name         : {step.NameLocator}");
+            sb.AppendLine($"[3] XPath        : {step.XPathLocator}");
+            sb.AppendLine();
+        }
+        Clipboard.SetText(sb.ToString());
     }
 
     public string? WindowTitle { get; }
@@ -195,6 +201,8 @@ public class ProcessViewModel : ObservableObject {
     public ICommand CopyDetailsToClipboardCommand { get; }
     public ICommand ClearRecordingCommand { get; }
     public ICommand CopyAllStepsCommand { get; }
+    public ICommand ClearDialogCaptureCommand { get; }
+    public ICommand CopyAllDialogStepsCommand { get; }
     public ICommand ApplySearchCommand { get; }
 
     public bool IsSearching {
@@ -236,16 +244,66 @@ public class ProcessViewModel : ObservableObject {
         }
     }
 
+    public bool IsDialogCapturing {
+        get => GetProperty<bool>();
+        set => SetProperty(value);
+    }
+
+    public bool IsCapturingDialog {
+        get => GetProperty<bool>();
+        private set => SetProperty(value);
+    }
+
     public ObservableCollection<RecordedStep> RecordedSteps { get; } = [];
+    public ObservableCollection<RecordedStep> DialogCapturedSteps { get; } = [];
 
     public void RecordElement(ElementViewModel element) {
-        var step = new RecordedStep(RecordedSteps.Count + 1, element);
+        AddStep(RecordedSteps, element);
+    }
+
+    private static void AddStep(ObservableCollection<RecordedStep> target, ElementViewModel element) {
+        var step = new RecordedStep(target.Count + 1, element);
         step.DeleteAction = () => {
-            RecordedSteps.Remove(step);
-            for (int i = 0; i < RecordedSteps.Count; i++)
-                RecordedSteps[i].StepNumber = i + 1;
+            target.Remove(step);
+            for (int i = 0; i < target.Count; i++)
+                target[i].StepNumber = i + 1;
         };
-        RecordedSteps.Add(step);
+        target.Add(step);
+    }
+
+    public void CaptureDialogTree(ElementViewModel root) {
+        if (root?.AutomationElement == null || IsCapturingDialog) return;
+        IsCapturingDialog = true;
+        Task.Run(() => {
+            try {
+                var collected = new List<ElementViewModel>();
+                CollectSubtree(root, collected, depth: 0, maxDepth: 50);
+
+                System.Windows.Application.Current.Dispatcher.Invoke(() => {
+                    foreach (ElementViewModel elem in collected) {
+                        AddStep(DialogCapturedSteps, elem);
+                    }
+                });
+            } catch (Exception ex) {
+                _logger?.LogError($"CaptureDialogTree failed: {ex.Message}");
+            } finally {
+                System.Windows.Application.Current.Dispatcher.Invoke(() => IsCapturingDialog = false);
+            }
+        });
+    }
+
+    private static void CollectSubtree(ElementViewModel node, List<ElementViewModel> result, int depth, int maxDepth) {
+        if (node == null || depth > maxDepth) return;
+        result.Add(node);
+        List<ElementViewModel> children;
+        try {
+            children = node.LoadChildren();
+        } catch {
+            return;
+        }
+        foreach (ElementViewModel c in children) {
+            CollectSubtree(c, result, depth + 1, maxDepth);
+        }
     }
 
     public void CopyElementTreeToClipboard(ElementViewModel elementViewModel) {

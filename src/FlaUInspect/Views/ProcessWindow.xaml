@@ -87,6 +87,139 @@
             <system:Double x:Key="ButtonWidth1">32</system:Double>
             <system:Double x:Key="ButtonHeight1">32</system:Double>
 
+            <DataTemplate x:Key="RecordedStepTemplate" DataType="{x:Type viewModels:RecordedStep}">
+                <Border BorderBrush="{DynamicResource TextBrush}"
+                        BorderThickness="1"
+                        CornerRadius="2"
+                        Margin="4,4,4,2"
+                        Padding="6">
+                    <StackPanel>
+                        <Grid Margin="0,0,0,4">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0"
+                                       FontWeight="Bold"
+                                       VerticalAlignment="Center">
+                                <Run Text="Step " /><Run Text="{Binding StepNumber, Mode=OneWay}" />
+                                <Run Text="  |  " /><Run Text="{Binding ControlTypeStr, Mode=OneTime}" />
+                                <Run Text="  |  &quot;" /><Run Text="{Binding ElementName, Mode=OneTime}" /><Run Text="&quot;" />
+                            </TextBlock>
+                            <Button Grid.Column="1"
+                                    Content="Copy All"
+                                    Padding="6,2"
+                                    Margin="4,0,2,0"
+                                    ToolTip="Copy all locators for this step"
+                                    Command="{Binding CopyAllCommand}" />
+                            <Button Grid.Column="2"
+                                    Content="×"
+                                    Padding="6,2"
+                                    FontWeight="Bold"
+                                    ToolTip="Remove this step"
+                                    Command="{Binding DeleteCommand}" />
+                        </Grid>
+
+                        <Grid Margin="0,1">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="56" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0"
+                                       FontWeight="SemiBold"
+                                       Text="Window  :" />
+                            <TextBox Grid.Column="1"
+                                     IsReadOnly="True"
+                                     Text="{Binding WindowLocator, Mode=OneTime}"
+                                     Style="{StaticResource SelectableLabel}"
+                                     TextWrapping="Wrap" />
+                        </Grid>
+
+                        <Grid Margin="0,1">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="56" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0"
+                                       FontWeight="SemiBold"
+                                       Text="Dialog  :" />
+                            <TextBox Grid.Column="1"
+                                     IsReadOnly="True"
+                                     Text="{Binding DialogLocator, Mode=OneTime}"
+                                     Style="{StaticResource SelectableLabel}"
+                                     TextWrapping="Wrap" />
+                        </Grid>
+
+                        <Separator Margin="0,5" />
+
+                        <Grid Margin="0,2">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="120" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0"
+                                       FontWeight="SemiBold"
+                                       Text="[1] AutomationId :" />
+                            <TextBox Grid.Column="1"
+                                     IsReadOnly="True"
+                                     Text="{Binding AutomationIdLocator, Mode=OneTime}"
+                                     Style="{StaticResource SelectableLabel}"
+                                     TextWrapping="Wrap" />
+                            <Button Grid.Column="2"
+                                    Content="Copy"
+                                    Padding="6,2"
+                                    Margin="4,0,0,0"
+                                    Command="{Binding CopyAutomationIdCommand}" />
+                        </Grid>
+
+                        <Grid Margin="0,2">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="120" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0"
+                                       FontWeight="SemiBold"
+                                       Text="[2] Name         :" />
+                            <TextBox Grid.Column="1"
+                                     IsReadOnly="True"
+                                     Text="{Binding NameLocator, Mode=OneTime}"
+                                     Style="{StaticResource SelectableLabel}"
+                                     TextWrapping="Wrap" />
+                            <Button Grid.Column="2"
+                                    Content="Copy"
+                                    Padding="6,2"
+                                    Margin="4,0,0,0"
+                                    Command="{Binding CopyNameCommand}" />
+                        </Grid>
+
+                        <Grid Margin="0,2">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="120" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0"
+                                       FontWeight="SemiBold"
+                                       Text="[3] XPath        :" />
+                            <TextBox Grid.Column="1"
+                                     IsReadOnly="True"
+                                     Text="{Binding XPathLocator, Mode=OneTime}"
+                                     Style="{StaticResource SelectableLabel}"
+                                     TextWrapping="Wrap" />
+                            <Button Grid.Column="2"
+                                    Content="Copy"
+                                    Padding="6,2"
+                                    Margin="4,0,0,0"
+                                    Command="{Binding CopyXPathCommand}" />
+                        </Grid>
+
+                    </StackPanel>
+                </Border>
+            </DataTemplate>
+
         </ResourceDictionary>
 
     </Window.Resources>
@@ -265,6 +398,20 @@
                 </ButtonBase.ToolTip>
                 <TextBlock Text="AUTO"
                            FontSize="8"
+                           FontWeight="Bold"
+                           HorizontalAlignment="Center"
+                           VerticalAlignment="Center" />
+            </ToggleButton>
+
+            <ToggleButton IsChecked="{Binding IsDialogCapturing}"
+                          Style="{StaticResource RibbonToggleButtonStyle}">
+                <ButtonBase.ToolTip>
+                    <TextBlock>
+                        Dialog Capture Mode.<LineBreak />
+                        Ctrl+Click a window/dialog root in the tree to record every descendant element into the Dialog tab.</TextBlock>
+                </ButtonBase.ToolTip>
+                <TextBlock Text="DLG"
+                           FontSize="9"
                            FontWeight="Bold"
                            HorizontalAlignment="Center"
                            VerticalAlignment="Center" />
@@ -563,149 +710,8 @@
                         </StackPanel>
                     <Grid>
                         <ScrollViewer VerticalScrollBarVisibility="Auto">
-                            <ItemsControl ItemsSource="{Binding RecordedSteps}">
-                                <ItemsControl.ItemTemplate>
-                                    <DataTemplate DataType="{x:Type viewModels:RecordedStep}">
-                                        <Border BorderBrush="{DynamicResource TextBrush}"
-                                                BorderThickness="1"
-                                                CornerRadius="2"
-                                                Margin="4,4,4,2"
-                                                Padding="6">
-                                            <StackPanel>
-
-                                                <!-- Step header: Step N | ControlType | "Name"  [Copy All] [×] -->
-                                                <Grid Margin="0,0,0,4">
-                                                    <Grid.ColumnDefinitions>
-                                                        <ColumnDefinition Width="*" />
-                                                        <ColumnDefinition Width="Auto" />
-                                                        <ColumnDefinition Width="Auto" />
-                                                    </Grid.ColumnDefinitions>
-                                                    <TextBlock Grid.Column="0"
-                                                               FontWeight="Bold"
-                                                               VerticalAlignment="Center">
-                                                        <Run Text="Step " /><Run Text="{Binding StepNumber, Mode=OneWay}" />
-                                                        <Run Text="  |  " /><Run Text="{Binding ControlTypeStr, Mode=OneTime}" />
-                                                        <Run Text="  |  &quot;" /><Run Text="{Binding ElementName, Mode=OneTime}" /><Run Text="&quot;" />
-                                                    </TextBlock>
-                                                    <Button Grid.Column="1"
-                                                            Content="Copy All"
-                                                            Padding="6,2"
-                                                            Margin="4,0,2,0"
-                                                            ToolTip="Copy all locators for this step"
-                                                            Command="{Binding CopyAllCommand}" />
-                                                    <Button Grid.Column="2"
-                                                            Content="×"
-                                                            Padding="6,2"
-                                                            FontWeight="Bold"
-                                                            ToolTip="Remove this step"
-                                                            Command="{Binding DeleteCommand}" />
-                                                </Grid>
-
-                                                <!-- Window locator -->
-                                                <Grid Margin="0,1">
-                                                    <Grid.ColumnDefinitions>
-                                                        <ColumnDefinition Width="56" />
-                                                        <ColumnDefinition Width="*" />
-                                                    </Grid.ColumnDefinitions>
-                                                    <TextBlock Grid.Column="0"
-                                                               FontWeight="SemiBold"
-                                                               Text="Window  :" />
-                                                    <TextBox Grid.Column="1"
-                                                             IsReadOnly="True"
-                                                             Text="{Binding WindowLocator, Mode=OneTime}"
-                                                             Style="{StaticResource SelectableLabel}"
-                                                             TextWrapping="Wrap" />
-                                                </Grid>
-
-                                                <!-- Dialog locator -->
-                                                <Grid Margin="0,1">
-                                                    <Grid.ColumnDefinitions>
-                                                        <ColumnDefinition Width="56" />
-                                                        <ColumnDefinition Width="*" />
-                                                    </Grid.ColumnDefinitions>
-                                                    <TextBlock Grid.Column="0"
-                                                               FontWeight="SemiBold"
-                                                               Text="Dialog  :" />
-                                                    <TextBox Grid.Column="1"
-                                                             IsReadOnly="True"
-                                                             Text="{Binding DialogLocator, Mode=OneTime}"
-                                                             Style="{StaticResource SelectableLabel}"
-                                                             TextWrapping="Wrap" />
-                                                </Grid>
-
-                                                <Separator Margin="0,5" />
-
-                                                <!-- [1] AutomationId -->
-                                                <Grid Margin="0,2">
-                                                    <Grid.ColumnDefinitions>
-                                                        <ColumnDefinition Width="120" />
-                                                        <ColumnDefinition Width="*" />
-                                                        <ColumnDefinition Width="Auto" />
-                                                    </Grid.ColumnDefinitions>
-                                                    <TextBlock Grid.Column="0"
-                                                               FontWeight="SemiBold"
-                                                               Text="[1] AutomationId :" />
-                                                    <TextBox Grid.Column="1"
-                                                             IsReadOnly="True"
-                                                             Text="{Binding AutomationIdLocator, Mode=OneTime}"
-                                                             Style="{StaticResource SelectableLabel}"
-                                                             TextWrapping="Wrap" />
-                                                    <Button Grid.Column="2"
-                                                            Content="Copy"
-                                                            Padding="6,2"
-                                                            Margin="4,0,0,0"
-                                                            Command="{Binding CopyAutomationIdCommand}" />
-                                                </Grid>
-
-                                                <!-- [2] Name -->
-                                                <Grid Margin="0,2">
-                                                    <Grid.ColumnDefinitions>
-                                                        <ColumnDefinition Width="120" />
-                                                        <ColumnDefinition Width="*" />
-                                                        <ColumnDefinition Width="Auto" />
-                                                    </Grid.ColumnDefinitions>
-                                                    <TextBlock Grid.Column="0"
-                                                               FontWeight="SemiBold"
-                                                               Text="[2] Name         :" />
-                                                    <TextBox Grid.Column="1"
-                                                             IsReadOnly="True"
-                                                             Text="{Binding NameLocator, Mode=OneTime}"
-                                                             Style="{StaticResource SelectableLabel}"
-                                                             TextWrapping="Wrap" />
-                                                    <Button Grid.Column="2"
-                                                            Content="Copy"
-                                                            Padding="6,2"
-                                                            Margin="4,0,0,0"
-                                                            Command="{Binding CopyNameCommand}" />
-                                                </Grid>
-
-                                                <!-- [3] XPath -->
-                                                <Grid Margin="0,2">
-                                                    <Grid.ColumnDefinitions>
-                                                        <ColumnDefinition Width="120" />
-                                                        <ColumnDefinition Width="*" />
-                                                        <ColumnDefinition Width="Auto" />
-                                                    </Grid.ColumnDefinitions>
-                                                    <TextBlock Grid.Column="0"
-                                                               FontWeight="SemiBold"
-                                                               Text="[3] XPath        :" />
-                                                    <TextBox Grid.Column="1"
-                                                             IsReadOnly="True"
-                                                             Text="{Binding XPathLocator, Mode=OneTime}"
-                                                             Style="{StaticResource SelectableLabel}"
-                                                             TextWrapping="Wrap" />
-                                                    <Button Grid.Column="2"
-                                                            Content="Copy"
-                                                            Padding="6,2"
-                                                            Margin="4,0,0,0"
-                                                            Command="{Binding CopyXPathCommand}" />
-                                                </Grid>
-
-                                            </StackPanel>
-                                        </Border>
-                                    </DataTemplate>
-                                </ItemsControl.ItemTemplate>
-                            </ItemsControl>
+                            <ItemsControl ItemsSource="{Binding RecordedSteps}"
+                                          ItemTemplate="{StaticResource RecordedStepTemplate}" />
                         </ScrollViewer>
 
                         <TextBlock HorizontalAlignment="Center"
@@ -714,6 +720,43 @@
                                    Text="No steps recorded.&#x0a;Enable Record Mode (REC) and Ctrl+Click elements in the tree."
                                    Visibility="{Binding RecordedSteps.Count, Converter={StaticResource IntToVisibilityConverter}, ConverterParameter=EqualsZero}" />
                     </Grid>
+                    </DockPanel>
+                </TabItem>
+
+                <!-- ═══ Dialog tab (captured dialog subtree) ═══ -->
+                <TabItem Header="Dialog">
+                    <DockPanel LastChildFill="True">
+                        <StackPanel DockPanel.Dock="Top"
+                                    Orientation="Horizontal"
+                                    Margin="4,4,4,2">
+                            <Button Content="Copy All Steps"
+                                    Padding="8,4"
+                                    Margin="0,0,4,0"
+                                    ToolTip="Copy all captured dialog steps to clipboard"
+                                    Command="{Binding CopyAllDialogStepsCommand}" />
+                            <Button Content="Clear All Steps"
+                                    Padding="8,4"
+                                    ToolTip="Remove all captured dialog steps"
+                                    Command="{Binding ClearDialogCaptureCommand}" />
+                            <ProgressBar Width="80"
+                                         Height="6"
+                                         Margin="8,0,0,0"
+                                         VerticalAlignment="Center"
+                                         IsIndeterminate="True"
+                                         Visibility="{Binding IsCapturingDialog, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                        </StackPanel>
+                        <Grid>
+                            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                <ItemsControl ItemsSource="{Binding DialogCapturedSteps}"
+                                              ItemTemplate="{StaticResource RecordedStepTemplate}" />
+                            </ScrollViewer>
+
+                            <TextBlock HorizontalAlignment="Center"
+                                       VerticalAlignment="Center"
+                                       TextAlignment="Center"
+                                       Text="No dialog captured.&#x0a;Enable Dialog Capture (DLG) and Ctrl+Click a window/dialog root in the tree."
+                                       Visibility="{Binding DialogCapturedSteps.Count, Converter={StaticResource IntToVisibilityConverter}, ConverterParameter=EqualsZero}" />
+                        </Grid>
                     </DockPanel>
                 </TabItem>
 
