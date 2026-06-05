@@ -408,6 +408,22 @@
                            VerticalAlignment="Center" />
             </ToggleButton>
 
+            <StackPanel Orientation="Horizontal"
+                        VerticalAlignment="Center"
+                        Margin="4,0,0,0"
+                        Visibility="{Binding IsCapturingDialog, Converter={StaticResource BooleanToVisibilityConverter}}">
+                <ProgressBar Width="120"
+                             Height="14"
+                             IsIndeterminate="True"
+                             VerticalAlignment="Center" />
+                <TextBlock Text="Capturing..."
+                           FontSize="11"
+                           FontWeight="SemiBold"
+                           Margin="6,0,0,0"
+                           VerticalAlignment="Center"
+                           Foreground="{DynamicResource TextBrush}" />
+            </StackPanel>
+
             <ToggleButton IsChecked="{Binding IsAlwaysOnTop}"
                           Style="{StaticResource RibbonToggleButtonStyle}">
                 <ButtonBase.ToolTip>
@@ -499,6 +515,12 @@
 
                         <ListView.ItemContainerStyle>
                             <Style TargetType="ListViewItem">
+                                <Style.Resources>
+                                    <SolidColorBrush x:Key="{x:Static SystemColors.HighlightBrushKey}" Color="#007ACC" />
+                                    <SolidColorBrush x:Key="{x:Static SystemColors.InactiveSelectionHighlightBrushKey}" Color="#007ACC" />
+                                    <SolidColorBrush x:Key="{x:Static SystemColors.HighlightTextBrushKey}" Color="White" />
+                                    <SolidColorBrush x:Key="{x:Static SystemColors.InactiveSelectionHighlightTextBrushKey}" Color="White" />
+                                </Style.Resources>
                                 <Setter Property="IsSelected" Value="{Binding IsSelected, Mode=TwoWay}" />
                             </Style>
                         </ListView.ItemContainerStyle>

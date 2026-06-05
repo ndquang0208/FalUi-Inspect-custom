@@ -169,7 +169,7 @@ public class ProcessViewModel : ObservableObject {
         set {
             if (SetProperty(value)) {
                 if (value != null) {
-                    if (EnableHighLightSelectionMode) {
+                    if (EnableHighLightSelectionMode || EnableFocusTrackingMode || IsAutoRecording) {
                         TrackSelectedItem(value);
                     }
                     Task.Run(() => ReadPatternsForSelectedItem(value.AutomationElement));
@@ -404,14 +404,13 @@ public class ProcessViewModel : ObservableObject {
         }
 
         if (new[] { EnableHoverMode, EnableHighLightSelectionMode, EnableFocusTrackingMode }.Count(x => x) == 1) {
-            if (EnableHighLightSelectionMode) {
+            if (EnableHighLightSelectionMode || EnableFocusTrackingMode) {
                 if (SelectedItem != null) {
                     TrackSelectedItem(SelectedItem);
                 }
             } else if (EnableHoverMode) {
                 HoverManager.Enable(_windowHandle);
             }
-            // EnableFocusTrackingMode already handled above
         }
     }
 
