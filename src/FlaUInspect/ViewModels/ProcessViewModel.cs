@@ -31,6 +31,8 @@ public class ProcessViewModel : ObservableObject {
     private PatternItemsFactory? _patternItemsFactory;
     private AutomationElement? _rootElement;
     private ElementOverlay _trackHighlighterOverlay;
+    private readonly List<ElementViewModel> _matches = [];
+    private int _matchIndex = -1;
 
     public ProcessViewModel(AutomationBase automation, int processId, IntPtr mainWindowHandle, InternalLogger logger) {
         _logger = logger;
@@ -123,6 +125,9 @@ public class ProcessViewModel : ObservableObject {
             }
         });
 
+        NextMatchCommand = new RelayCommand(_ => GoToMatch(+1));
+        PreviousMatchCommand = new RelayCommand(_ => GoToMatch(-1));
+
         CopyAllStepsCommand = new RelayCommand(_ => CopyStepsToClipboard(RecordedSteps));
 
         ClearDialogCaptureCommand = new RelayCommand(_ => DialogCapturedSteps.Clear());
@@ -204,6 +209,18 @@ public class ProcessViewModel : ObservableObject {
     public ICommand ClearDialogCaptureCommand { get; }
     public ICommand CopyAllDialogStepsCommand { get; }
     public ICommand ApplySearchCommand { get; }
+    public ICommand NextMatchCommand { get; }
+    public ICommand PreviousMatchCommand { get; }
+
+    public string MatchCountText {
+        get => GetProperty<string>() ?? string.Empty;
+        private set => SetProperty(value);
+    }
+
+    public bool HasMatches {
+        get => GetProperty<bool>();
+        private set => SetProperty(value);
+    }
 
     public bool IsSearching {
         get => GetProperty<bool>();
@@ -224,6 +241,18 @@ public class ProcessViewModel : ObservableObject {
         get => GetProperty<SearchScope>();
         set => SetProperty(value);
     }
+
+    public SearchMode SearchMode {
+        get => GetProperty<SearchMode>();
+        set => SetProperty(value);
+    }
+
+    public IReadOnlyList<SearchMode> SearchModes { get; } = new[] {
+        SearchMode.Contains,
+        SearchMode.Exact,
+        SearchMode.StartsWith,
+        SearchMode.EndsWith
+    };
 
     public IReadOnlyList<SearchScope> SearchScopes { get; } = new[] {
         SearchScope.Name,
@@ -465,32 +494,45 @@ public class ProcessViewModel : ObservableObject {
     private void RunSearchOnBackground() {
         string? query = SearchText;
         SearchScope scope = SearchScope;
+        SearchMode mode = SearchMode;
         bool hasQuery = !string.IsNullOrWhiteSpace(query);
         System.Windows.Threading.Dispatcher dispatcher = System.Windows.Application.Current.Dispatcher;
 
         if (hasQuery && query!.Length >= 2) {
             List<ElementViewModel> snapshot = dispatcher.Invoke(() => Elements.ToList());
             foreach (ElementViewModel vm in snapshot) {
-                ExpandSubtreeForSearchBg(vm, query, scope, maxDepth: 8, currentDepth: 0, dispatcher);
+                ExpandSubtreeForSearchBg(vm, query, scope, mode, maxDepth: 8, currentDepth: 0, dispatcher);
             }
         }
 
         dispatcher.Invoke(() => {
-            ElementViewModel? firstMatch = null;
+            _matches.Clear();
             foreach (ElementViewModel vm in Elements) {
-                vm.IsMatch = hasQuery && vm.Matches(query!, scope);
-                if (vm.IsMatch && firstMatch == null) firstMatch = vm;
+                vm.IsMatch = hasQuery && vm.Matches(query!, scope, mode);
+                if (vm.IsMatch) _matches.Add(vm);
             }
-            if (hasQuery) {
+            if (hasQuery && _matches.Count > 0) {
                 EnableHighLightSelectionMode = true;
-                if (firstMatch != null) {
-                    SelectedItem = firstMatch;
-                }
+                _matchIndex = 0;
+                SelectedItem = _matches[0];
+                HasMatches = true;
+                MatchCountText = $"1 / {_matches.Count}";
+            } else {
+                _matchIndex = -1;
+                HasMatches = false;
+                MatchCountText = hasQuery ? "0 / 0" : string.Empty;
             }
         });
     }
 
-    private void ExpandSubtreeForSearchBg(ElementViewModel vm, string query, SearchScope scope, int maxDepth, int currentDepth, System.Windows.Threading.Dispatcher dispatcher) {
+    private void GoToMatch(int direction) {
+        if (_matches.Count == 0) return;
+        _matchIndex = (_matchIndex + direction + _matches.Count) % _matches.Count;
+        SelectedItem = _matches[_matchIndex];
+        MatchCountText = $"{_matchIndex + 1} / {_matches.Count}";
+    }
+
+    private void ExpandSubtreeForSearchBg(ElementViewModel vm, string query, SearchScope scope, SearchMode mode, int maxDepth, int currentDepth, System.Windows.Threading.Dispatcher dispatcher) {
         if (currentDepth >= maxDepth || vm.AutomationElement == null) return;
 
         List<ElementViewModel> children;
@@ -501,7 +543,7 @@ public class ProcessViewModel : ObservableObject {
         }
         if (children.Count == 0) return;
 
-        if (!SubtreeContainsMatch(children, query, scope, maxDepth - currentDepth - 1)) return;
+        if (!SubtreeContainsMatch(children, query, scope, mode, maxDepth - currentDepth - 1)) return;
 
         dispatcher.Invoke(() => {
             if (!vm.IsExpanded) {
@@ -523,18 +565,18 @@ public class ProcessViewModel : ObservableObject {
         });
 
         foreach (ElementViewModel c in directChildren) {
-            ExpandSubtreeForSearchBg(c, query, scope, maxDepth, currentDepth + 1, dispatcher);
+            ExpandSubtreeForSearchBg(c, query, scope, mode, maxDepth, currentDepth + 1, dispatcher);
         }
     }
 
-    private static bool SubtreeContainsMatch(List<ElementViewModel> children, string query, SearchScope scope, int remainingDepth) {
+    private static bool SubtreeContainsMatch(List<ElementViewModel> children, string query, SearchScope scope, SearchMode mode, int remainingDepth) {
         if (remainingDepth < 0) return false;
         foreach (ElementViewModel c in children) {
-            if (c.Matches(query, scope)) return true;
+            if (c.Matches(query, scope, mode)) return true;
             if (remainingDepth == 0) continue;
             try {
                 List<ElementViewModel> grand = c.LoadChildren();
-                if (SubtreeContainsMatch(grand, query, scope, remainingDepth - 1)) return true;
+                if (SubtreeContainsMatch(grand, query, scope, mode, remainingDepth - 1)) return true;
             } catch {
                 // ignored
             }

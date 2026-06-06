@@ -14,7 +14,7 @@
                                     BorderThickness="0,0,0,1"
                                     DockPanel.Dock="Top">
                                 <ContentPresenter Margin="2"
-                                                  HorizontalAlignment="Left"
+                                                  HorizontalAlignment="Stretch"
                                                   VerticalAlignment="Center"
                                                   Content="{TemplateBinding Header}"
                                                   RecognizesAccessKey="True" />

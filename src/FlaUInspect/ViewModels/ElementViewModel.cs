@@ -13,6 +13,13 @@ public enum SearchScope {
     XPath
 }
 
+public enum SearchMode {
+    Contains,
+    Exact,
+    StartsWith,
+    EndsWith
+}
+
 public class ElementViewModel : ObservableObject {
     private readonly string _guidId;
 
@@ -71,12 +78,20 @@ public class ElementViewModel : ObservableObject {
         return $"{Name} [{ControlType}] : {AutomationId}";
     }
 
-    public bool Matches(string query, SearchScope scope) {
+    public bool Matches(string query, SearchScope scope, SearchMode mode = SearchMode.Contains) {
         if (string.IsNullOrEmpty(query)) return false;
-        return scope switch {
-            SearchScope.Name => Name?.Contains(query, StringComparison.OrdinalIgnoreCase) ?? false,
-            SearchScope.AutomationId => AutomationId?.Contains(query, StringComparison.OrdinalIgnoreCase) ?? false,
-            SearchScope.XPath => XPath?.Contains(query, StringComparison.OrdinalIgnoreCase) ?? false,
+        string? target = scope switch {
+            SearchScope.Name => Name,
+            SearchScope.AutomationId => AutomationId,
+            SearchScope.XPath => XPath,
+            _ => null
+        };
+        if (target == null) return false;
+        return mode switch {
+            SearchMode.Contains => target.Contains(query, StringComparison.OrdinalIgnoreCase),
+            SearchMode.Exact => target.Equals(query, StringComparison.OrdinalIgnoreCase),
+            SearchMode.StartsWith => target.StartsWith(query, StringComparison.OrdinalIgnoreCase),
+            SearchMode.EndsWith => target.EndsWith(query, StringComparison.OrdinalIgnoreCase),
             _ => false
         };
     }

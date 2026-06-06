@@ -453,57 +453,109 @@
             <GroupBox Grid.Row="0"
                       Grid.RowSpan="2"
                       Grid.Column="0"
-                      Header="Elements"
                       Style="{StaticResource GroupBoxStyle}">
+                <GroupBox.Header>
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+
+                        <ComboBox Grid.Row="0"
+                                  Grid.Column="0"
+                                  x:Name="SearchScopeCombo"
+                                  Height="22"
+                                  MinWidth="90"
+                                  Margin="0,0,4,2"
+                                  FontSize="11"
+                                  VerticalContentAlignment="Center"
+                                  ToolTip="Choose which field to filter by"
+                                  ItemsSource="{Binding SearchScopes}"
+                                  SelectedItem="{Binding SearchScope}" />
+                        <TextBox Grid.Row="0"
+                                 Grid.Column="1"
+                                 x:Name="SearchTextBox"
+                                 Height="22"
+                                 Margin="0,0,2,2"
+                                 Padding="4,1"
+                                 FontSize="11"
+                                 VerticalContentAlignment="Center"
+                                 ToolTip="Type and press Enter or click Search (case-insensitive). Matches are highlighted; tree is not filtered."
+                                 Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}">
+                            <TextBox.InputBindings>
+                                <KeyBinding Key="Return" Command="{Binding ApplySearchCommand}" />
+                                <KeyBinding Key="F3" Command="{Binding NextMatchCommand}" />
+                                <KeyBinding Key="F3" Modifiers="Shift" Command="{Binding PreviousMatchCommand}" />
+                            </TextBox.InputBindings>
+                        </TextBox>
+
+                        <StackPanel Grid.Row="1"
+                                    Grid.Column="0"
+                                    Grid.ColumnSpan="2"
+                                    Margin="4,0,2,0"
+                                    Orientation="Horizontal"
+                                    HorizontalAlignment="Right">
+                            <TextBlock Margin="0,0,4,0"
+                                       VerticalAlignment="Center"
+                                       FontFamily="Consolas"
+                                       FontSize="10"
+                                       MinWidth="32"
+                                       TextAlignment="Center"
+                                       Foreground="{DynamicResource TextBrush}"
+                                       Opacity="0.7"
+                                       Text="{Binding MatchCountText}" />
+                            <Button Content="▲"
+                                    Height="18"
+                                    FontSize="8"
+                                    Padding="0"
+                                    MinWidth="16"
+                                    Margin="0,0,1,0"
+                                    ToolTip="Previous match (Shift+F3)"
+                                    IsEnabled="{Binding HasMatches}"
+                                    Command="{Binding PreviousMatchCommand}" />
+                            <Button Content="▼"
+                                    Height="18"
+                                    FontSize="8"
+                                    Padding="0"
+                                    MinWidth="16"
+                                    Margin="0,0,4,0"
+                                    ToolTip="Next match (F3)"
+                                    IsEnabled="{Binding HasMatches}"
+                                    Command="{Binding NextMatchCommand}" />
+                            <ComboBox Height="22"
+                                      MinWidth="80"
+                                      Margin="0,0,2,0"
+                                      FontSize="11"
+                                      VerticalContentAlignment="Center"
+                                      ToolTip="Match mode"
+                                      ItemsSource="{Binding SearchModes}"
+                                      SelectedItem="{Binding SearchMode}" />
+                            <Button Content="Search"
+                                    Height="22"
+                                    FontSize="11"
+                                    Padding="8,0"
+                                    Margin="2,0,0,0"
+                                    FontWeight="SemiBold"
+                                    ToolTip="Search (Enter)"
+                                    Command="{Binding ApplySearchCommand}" />
+                        </StackPanel>
+                    </Grid>
+                </GroupBox.Header>
                 <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="*" />
                     </Grid.RowDefinitions>
 
-                    <Grid Grid.Row="0" Margin="2,2,2,4">
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="Auto" />
-                        </Grid.RowDefinitions>
-                        <Grid Grid.Row="0">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto" />
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <ComboBox Grid.Column="0"
-                                      x:Name="SearchScopeCombo"
-                                      MinWidth="100"
-                                      Margin="0,0,4,0"
-                                      VerticalContentAlignment="Center"
-                                      ToolTip="Choose which field to filter by"
-                                      ItemsSource="{Binding SearchScopes}"
-                                      SelectedItem="{Binding SearchScope}" />
-                            <TextBox Grid.Column="1"
-                                     x:Name="SearchTextBox"
-                                     Padding="4,2"
-                                     VerticalContentAlignment="Center"
-                                     ToolTip="Type and press Enter or click Search (case-insensitive). Matches are highlighted; tree is not filtered."
-                                     Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}">
-                                <TextBox.InputBindings>
-                                    <KeyBinding Key="Return" Command="{Binding ApplySearchCommand}" />
-                                </TextBox.InputBindings>
-                            </TextBox>
-                            <Button Grid.Column="2"
-                                    Content="Search"
-                                    Padding="8,2"
-                                    Margin="2,0,0,0"
-                                    FontWeight="SemiBold"
-                                    ToolTip="Search (Enter)"
-                                    Command="{Binding ApplySearchCommand}" />
-                        </Grid>
-                        <ProgressBar Grid.Row="1"
-                                     Height="2"
-                                     Margin="0,2,0,0"
-                                     IsIndeterminate="True"
-                                     Visibility="{Binding IsSearching, Converter={StaticResource BooleanToVisibilityConverter}}" />
-                    </Grid>
+                    <ProgressBar Grid.Row="0"
+                                 Height="2"
+                                 Margin="2,0,2,0"
+                                 IsIndeterminate="True"
+                                 Visibility="{Binding IsSearching, Converter={StaticResource BooleanToVisibilityConverter}}" />
 
                     <ListView Grid.Row="1"
                               x:Name="TreeViewControl"
