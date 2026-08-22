@@ -138,13 +138,8 @@ public class ProcessViewModel : ObservableObject {
         var list = steps.ToList();
         if (list.Count == 0) return;
         var sb = new System.Text.StringBuilder();
-        foreach (var step in list) {
-            sb.AppendLine($"{step.Label}  |  {step.ControlTypeStr}  |  \"{step.ElementName}\"");
-            sb.AppendLine($"Window  : {step.WindowLocator}");
-            sb.AppendLine($"Dialog  : {step.DialogLocator}");
-            sb.AppendLine($"[1] AutomationId : {step.AutomationIdLocator}");
-            sb.AppendLine($"[2] Name         : {step.NameLocator}");
-            sb.AppendLine($"[3] XPath        : {step.XPathLocator}");
+        foreach (RecordedStep step in list) {
+            sb.Append(step.BuildSummaryText());
             sb.AppendLine();
         }
         Clipboard.SetText(sb.ToString());
@@ -303,17 +298,58 @@ public class ProcessViewModel : ObservableObject {
     public ObservableCollection<RecordedStep> DialogCapturedSteps { get; } = [];
 
     public void RecordElement(ElementViewModel element) {
-        AddStep(RecordedSteps, element);
+        AddStep(RecordedSteps, element, withDetails: true);
     }
 
-    private static void AddStep(ObservableCollection<RecordedStep> target, ElementViewModel element) {
-        var step = new RecordedStep(target.Count + 1, element);
+    private void AddStep(ObservableCollection<RecordedStep> target, ElementViewModel element, bool withDetails) {
+        AddStep(target, new RecordedStep(target.Count + 1, element), withDetails);
+    }
+
+    /// <summary>
+    ///     Appends an already-built step. The <see cref="RecordedStep" /> constructor does several UIA reads
+    ///     (sibling index, HelpText), so window capture builds its steps on the background thread and only calls
+    ///     this on the UI thread.
+    /// </summary>
+    private void AddStep(ObservableCollection<RecordedStep> target, RecordedStep step, bool withDetails) {
+        step.StepNumber = target.Count + 1;
         step.DeleteAction = () => {
             target.Remove(step);
             for (int i = 0; i < target.Count; i++)
                 target[i].StepNumber = i + 1;
         };
         target.Add(step);
+
+        if (withDetails) {
+            LoadStepDetails(step);
+        }
+    }
+
+    /// <summary>
+    ///     Reads the same detail groups the Details tab shows and attaches them to the step. Runs off the UI thread
+    ///     because reflecting over every supported pattern is slow enough to stall AUTO recording otherwise.
+    /// </summary>
+    private void LoadStepDetails(RecordedStep step) {
+        AutomationElement? element = step.Element.AutomationElement;
+        PatternItemsFactory? factory = _patternItemsFactory;
+        if (element == null || factory == null) {
+            return;
+        }
+
+        Task.Run(() => {
+            try {
+                HashSet<PatternId> supportedPatterns = [.. element.GetSupportedPatterns()];
+                IDictionary<string, PatternItem[]> patternItems = factory.CreatePatternItemsForElement(element, supportedPatterns);
+
+                List<RecordedDetailGroup> groups = patternItems
+                    .Where(kvp => kvp.Value.Length > 0)
+                    .Select(kvp => new RecordedDetailGroup(kvp.Key, kvp.Value))
+                    .ToList();
+
+                System.Windows.Application.Current.Dispatcher.Invoke(() => step.SetDetailGroups(groups));
+            } catch (Exception e) {
+                _logger?.LogError($"LoadStepDetails failed: {e.Message}");
+            }
+        });
     }
 
     public void CaptureDialogTree(ElementViewModel root) {
@@ -324,9 +360,11 @@ public class ProcessViewModel : ObservableObject {
                 var collected = new List<ElementViewModel>();
                 CollectSubtree(root, collected, depth: 0, maxDepth: 50);
 
+                List<RecordedStep> steps = collected.Select(elem => new RecordedStep(0, elem)).ToList();
+
                 System.Windows.Application.Current.Dispatcher.Invoke(() => {
-                    foreach (ElementViewModel elem in collected) {
-                        AddStep(DialogCapturedSteps, elem);
+                    foreach (RecordedStep step in steps) {
+                        AddStep(DialogCapturedSteps, step, withDetails: false);
                     }
                 });
             } catch (Exception ex) {

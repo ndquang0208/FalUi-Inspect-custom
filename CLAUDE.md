@@ -107,7 +107,17 @@ The toolbar button **CLR** was removed — use the **Clear All Steps** button in
 
 `RecordedStep` computes all locators once in its constructor from the element's `Parent` chain (available because tree expansion sets `ElementViewModel.Parent`). It generates a custom XPath walking from the root `Window` down: `ControlType[@AutomationId='x']` if AutomationId present, else `ControlType[N]` using sibling index via `FindAllChildren()`.
 
-The card header is **`Label  |  ControlType  |  "Name"`** where `Label` = `"Window Element"` when `ControlType == Window`, else `"Element"`. The numeric `StepNumber` is still tracked internally (for delete re-indexing) but no longer shown — bulk copy (`CopyAllStepsCommand` / per-step `CopyAllCommand`) uses `Label` too.
+The card header is **`Label  |  ControlType  |  "Name"`** where `Label` = `"Window Element"` when `ControlType == Window`, else `"Element"`. The numeric `StepNumber` is still tracked internally (for delete re-indexing) but no longer shown.
+
+`RecordedStep.BuildSummaryText()` is the single clipboard format used by both the per-step `CopyAllCommand` and the bulk `CopyAllStepsCommand` / `CopyAllDialogStepsCommand` — change the text layout there, not in `ProcessViewModel.CopyStepsToClipboard`.
+
+**HelpText (all modes):** every card shows a `Help    :` row read from `element.Properties.HelpText` in the `RecordedStep` constructor (`"(none)"` when absent). `HasHelpText` gates the row's Copy button. This is the property WIN-captured cards rely on, but REC/AUTO cards get it too.
+
+**Detail snapshot (REC / AUTO only):** `ProcessViewModel.LoadStepDetails()` runs `PatternItemsFactory.CreatePatternItemsForElement` on a `Task.Run` and marshals the result into `RecordedStep.DetailGroups` (`RecordedDetailGroup` = group name + `PatternItem[]`), rendered as a collapsed "Details" `Expander` in the card with the same groups as the Details tab. It is a *snapshot* — values are frozen at record time, unlike the live Details tab.
+
+> ⚠️ Window capture passes `withDetails: false`. A subtree capture is hundreds of elements and full pattern reflection per element would stall the app. If that ever changes, throttle it.
+
+Because the `RecordedStep` constructor does several UIA reads (sibling index via `FindAllChildren`, HelpText), `CaptureDialogTree` builds all `RecordedStep` instances on the background thread and only calls the `AddStep(target, step, withDetails)` overload inside `Dispatcher.Invoke`.
 
 ### MVVM Base
 

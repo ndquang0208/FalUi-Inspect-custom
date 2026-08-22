@@ -151,6 +151,29 @@
                                      TextWrapping="Wrap" />
                         </Grid>
 
+                        <Grid Margin="0,1">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="56" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0"
+                                       FontWeight="SemiBold"
+                                       Text="Help    :" />
+                            <TextBox Grid.Column="1"
+                                     IsReadOnly="True"
+                                     Text="{Binding HelpText, Mode=OneTime}"
+                                     Style="{StaticResource SelectableLabel}"
+                                     TextWrapping="Wrap" />
+                            <Button Grid.Column="2"
+                                    Content="Copy"
+                                    Padding="6,2"
+                                    Margin="4,0,0,0"
+                                    ToolTip="Copy the HelpText of this element"
+                                    Command="{Binding CopyHelpTextCommand}"
+                                    Visibility="{Binding HasHelpText, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                        </Grid>
+
                         <Separator Margin="0,5" />
 
                         <Grid Margin="0,2">
@@ -215,6 +238,66 @@
                                     Margin="4,0,0,0"
                                     Command="{Binding CopyXPathCommand}" />
                         </Grid>
+
+                        <!-- Full detail snapshot, same groups as the Details tab (REC / AUTO steps only) -->
+                        <Expander Margin="0,6,0,0"
+                                  IsExpanded="{Binding IsDetailsExpanded}"
+                                  Style="{StaticResource PatternExpanderStyle}"
+                                  Visibility="{Binding HasDetails, Converter={StaticResource BooleanToVisibilityConverter}}">
+                            <Expander.Header>
+                                <TextBlock VerticalAlignment="Center"
+                                           FontWeight="Bold"
+                                           Text="Details" />
+                            </Expander.Header>
+                            <ItemsControl ItemsSource="{Binding DetailGroups}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate DataType="{x:Type viewModels:RecordedDetailGroup}">
+                                        <Expander Margin="0,1"
+                                                  Style="{StaticResource PatternExpanderStyle}">
+                                            <Expander.Header>
+                                                <TextBlock VerticalAlignment="Center"
+                                                           FontWeight="Bold"
+                                                           Text="{Binding Name}" />
+                                            </Expander.Header>
+                                            <ItemsControl AlternationCount="2"
+                                                          Foreground="{DynamicResource TextBrush}"
+                                                          ItemsSource="{Binding Items}">
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate DataType="{x:Type viewModels:PatternItem}">
+                                                        <Border Margin="0"
+                                                                Padding="0">
+                                                            <Border.Background>
+                                                                <MultiBinding Converter="{StaticResource AlternationToColorConverter}">
+                                                                    <Binding Path="(ItemsControl.AlternationIndex)"
+                                                                             RelativeSource="{RelativeSource Mode=FindAncestor,
+                                                                                                             AncestorType=ContentPresenter}" />
+                                                                </MultiBinding>
+                                                            </Border.Background>
+                                                            <Grid>
+                                                                <Grid.ColumnDefinitions>
+                                                                    <ColumnDefinition Width="130" />
+                                                                    <ColumnDefinition Width="*" />
+                                                                </Grid.ColumnDefinitions>
+                                                                <TextBox Grid.Column="0"
+                                                                         IsReadOnly="True"
+                                                                         Text="{Binding Key, Mode=OneWay}"
+                                                                         Style="{StaticResource SelectableLabel}" />
+                                                                <TextBox Grid.Column="1"
+                                                                         Margin="5,0,0,0"
+                                                                         IsReadOnly="True"
+                                                                         Text="{Binding Value, Mode=OneWay}"
+                                                                         Style="{StaticResource SelectableLabel}"
+                                                                         TextWrapping="Wrap" />
+                                                            </Grid>
+                                                        </Border>
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+                                        </Expander>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </Expander>
 
                     </StackPanel>
                 </Border>

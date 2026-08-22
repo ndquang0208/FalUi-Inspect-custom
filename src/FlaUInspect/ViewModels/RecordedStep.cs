@@ -1,20 +1,25 @@
+using System.Collections.ObjectModel;
 using System.Text;
 using System.Windows;
 using System.Windows.Input;
 using FlaUI.Core;
 using FlaUI.Core.Definitions;
 using FlaUInspect.Core;
+using FlaUInspect.Core.Extensions;
 
 namespace FlaUInspect.ViewModels;
 
 public class RecordedStep : ObservableObject {
+    public const string NoneText = "(none)";
+
     public RecordedStep(int stepNumber, ElementViewModel element) {
         _stepNumber = stepNumber;
         Element = element;
 
         ControlTypeStr = element.ControlType.ToString();
-        ElementName = string.IsNullOrEmpty(element.Name) ? "(none)" : element.Name;
+        ElementName = string.IsNullOrEmpty(element.Name) ? NoneText : element.Name;
         Label = element.ControlType == ControlType.Window ? "Window Element" : "Element";
+        HelpText = ReadHelpText(element);
 
         var ancestors = BuildAncestorChain(element);
 
@@ -50,16 +55,11 @@ public class RecordedStep : ObservableObject {
             if (!string.IsNullOrEmpty(XPathLocator) && XPathLocator != "(none)")
                 Clipboard.SetText(XPathLocator);
         });
-        CopyAllCommand = new RelayCommand(_ => {
-            var sb = new StringBuilder();
-            sb.AppendLine($"{Label}  |  {ControlTypeStr}  |  \"{ElementName}\"");
-            sb.AppendLine($"Window  : {WindowLocator}");
-            sb.AppendLine($"Dialog  : {DialogLocator}");
-            sb.AppendLine($"[1] AutomationId : {AutomationIdLocator}");
-            sb.AppendLine($"[2] Name         : {NameLocator}");
-            sb.AppendLine($"[3] XPath        : {XPathLocator}");
-            Clipboard.SetText(sb.ToString());
+        CopyHelpTextCommand = new RelayCommand(_ => {
+            if (HasHelpText)
+                Clipboard.SetText(HelpText);
         });
+        CopyAllCommand = new RelayCommand(_ => Clipboard.SetText(BuildSummaryText()));
         DeleteCommand = new RelayCommand(_ => DeleteAction?.Invoke());
     }
 
@@ -79,13 +79,84 @@ public class RecordedStep : ObservableObject {
     public string NameLocator { get; }
     public string XPathLocator { get; }
 
+    /// <summary>The UIA HelpText property of the element ("(none)" when the element exposes none).</summary>
+    public string HelpText { get; }
+    public bool HasHelpText => HelpText != NoneText;
+
+    /// <summary>
+    ///     Full detail snapshot (same groups as the Details tab). Filled in asynchronously right after the step is
+    ///     added, and only for steps recorded via REC / AUTO — window captures skip it because a whole subtree of
+    ///     pattern reads would freeze the UI.
+    /// </summary>
+    public ObservableCollection<RecordedDetailGroup> DetailGroups { get; } = [];
+
+    public bool HasDetails {
+        get => GetProperty<bool>();
+        private set => SetProperty(value);
+    }
+
+    public bool IsDetailsExpanded {
+        get => GetProperty<bool>();
+        set => SetProperty(value);
+    }
+
     public Action? DeleteAction { get; set; }
 
     public ICommand CopyAutomationIdCommand { get; }
     public ICommand CopyNameCommand { get; }
     public ICommand CopyXPathCommand { get; }
+    public ICommand CopyHelpTextCommand { get; }
     public ICommand CopyAllCommand { get; }
     public ICommand DeleteCommand { get; }
+
+    /// <summary>Replaces the detail snapshot. Must be called on the UI thread.</summary>
+    public void SetDetailGroups(IEnumerable<RecordedDetailGroup> groups) {
+        DetailGroups.Clear();
+        foreach (RecordedDetailGroup group in groups) {
+            DetailGroups.Add(group);
+        }
+        HasDetails = DetailGroups.Count > 0;
+    }
+
+    /// <summary>Single source of truth for the clipboard format, used by both per-step and bulk copy.</summary>
+    public string BuildSummaryText() {
+        var sb = new StringBuilder();
+        sb.AppendLine($"{Label}  |  {ControlTypeStr}  |  \"{ElementName}\"");
+        sb.AppendLine($"Window  : {WindowLocator}");
+        sb.AppendLine($"Dialog  : {DialogLocator}");
+        sb.AppendLine($"HelpText: {HelpText}");
+        sb.AppendLine($"[1] AutomationId : {AutomationIdLocator}");
+        sb.AppendLine($"[2] Name         : {NameLocator}");
+        sb.AppendLine($"[3] XPath        : {XPathLocator}");
+
+        if (DetailGroups.Count > 0) {
+            sb.AppendLine("--- Details ---");
+            foreach (RecordedDetailGroup group in DetailGroups) {
+                sb.AppendLine($"[{group.Name}]");
+                foreach (PatternItem item in group.Items) {
+                    sb.AppendLine($"  {item.Key,-28}: {item.Value}");
+                }
+            }
+        }
+
+        return sb.ToString();
+    }
+
+    private static string ReadHelpText(ElementViewModel element) {
+        if (element.AutomationElement == null) {
+            return NoneText;
+        }
+
+        try {
+            using (CacheRequest.ForceNoCache()) {
+                return element.AutomationElement.Properties.HelpText.TryGetValue(out string? help) && !string.IsNullOrWhiteSpace(help)
+                    ? help.NormalizeString().Trim()
+                    : NoneText;
+            }
+        } catch {
+            return NoneText;
+        }
+    }
 
     private static List<ElementViewModel> BuildAncestorChain(ElementViewModel element) {
         var ancestors = new List<ElementViewModel>();
