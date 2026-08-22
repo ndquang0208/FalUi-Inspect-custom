@@ -84,15 +84,15 @@ All three are mutually exclusive radio buttons. `SetMode()` is called on every m
 
 `IsAutoRecording` (AUTO button) starts focus tracking regardless of the radio selection and auto-appends every focused element to `RecordedSteps`.
 
-### Recording Modes (REC / AUTO / WIN) — mutually exclusive
+### Recording Modes (REC / AUTO / WIN / WIN+D) — mutually exclusive
 
-> ⚠️ **Important:** `IsRecording` (REC), `IsAutoRecording` (AUTO), and `IsDialogCapturing` (WIN, was DLG) are **mutually exclusive**. Their setters in `ProcessViewModel` force the other two to `false` when one is enabled. Reason: enabling AUTO while REC was on previously caused REC's `Ctrl+Click` to appear broken because AUTO's focus-driven auto-record fired in parallel and the user couldn't tell whose step was being added.
+> ⚠️ **Important:** `IsRecording` (REC), `IsAutoRecording` (AUTO), `IsDialogCapturing` (WIN, was DLG), and `IsDialogCapturingWithDetails` (WIN+D) are **mutually exclusive**. Their setters in `ProcessViewModel` force the other three to `false` when one is enabled. Reason: enabling AUTO while REC was on previously caused REC's `Ctrl+Click` to appear broken because AUTO's focus-driven auto-record fired in parallel and the user couldn't tell whose step was being added. Adding a mode means adding it to all the other setters — there is no shared arbiter.
 
 The toolbar button **CLR** was removed — use the **Clear All Steps** button inside the Locator/Window tabs instead. The **DLG** toggle was renamed to **WIN** (and the "Dialog" tab header → "Window") because there is no separate UIA Dialog control type; it captures any window-root subtree.
 
 ### Toggle button visual state
 
-> ⚠️ The default WPF `ToggleButton` template has no checked-state visual. `Controls/ToggleButtons.xaml` now defines `Button.Checked.Background/Border/Foreground` (uses `AccentColor`, white text) and an `IsChecked=True` trigger on the template so REC / AUTO / WIN / TOP visibly highlight when active. Any new ribbon toggle must use `RibbonToggleButtonStyle` to inherit this.
+> ⚠️ The default WPF `ToggleButton` template has no checked-state visual. `Controls/ToggleButtons.xaml` now defines `Button.Checked.Background/Border/Foreground` (uses `AccentColor`, white text) and an `IsChecked=True` trigger on the template so REC / AUTO / WIN / WIN+D / TOP visibly highlight when active. Any new ribbon toggle must use `RibbonToggleButtonStyle` to inherit this.
 
 ### Hover scroll-into-view
 
@@ -103,7 +103,7 @@ The toolbar button **CLR** was removed — use the **Clear All Steps** button in
 `RecordedSteps` (`ObservableCollection<RecordedStep>`) is populated by:
 - **Manual (REC):** `Ctrl+Click` on a tree item → `ProcessViewModel.RecordElement()`
 - **Auto (AUTO):** every focus-change callback → `RecordElement(SelectedItem)`
-- **Window capture (WIN):** `Ctrl+Click` a window root → `CaptureDialogTree()` enumerates the subtree into `DialogCapturedSteps` (the "Window" tab).
+- **Window capture (WIN / WIN+D):** `Ctrl+Click` a window root → `CaptureDialogTree()` enumerates the subtree into `DialogCapturedSteps` (the "Window" tab).
 
 `RecordedStep` computes all locators once in its constructor from the element's `Parent` chain (available because tree expansion sets `ElementViewModel.Parent`). It generates a custom XPath walking from the root `Window` down: `ControlType[@AutomationId='x']` if AutomationId present, else `ControlType[N]` using sibling index via `FindAllChildren()`.
 
@@ -113,11 +113,21 @@ The card header is **`Label  |  ControlType  |  "Name"`** where `Label` = `"Wind
 
 **HelpText (all modes):** every card shows a `Help    :` row read from `element.Properties.HelpText` in the `RecordedStep` constructor (`"(none)"` when absent). `HasHelpText` gates the row's Copy button. This is the property WIN-captured cards rely on, but REC/AUTO cards get it too.
 
-**Detail snapshot (REC / AUTO only):** `ProcessViewModel.LoadStepDetails()` runs `PatternItemsFactory.CreatePatternItemsForElement` on a `Task.Run` and marshals the result into `RecordedStep.DetailGroups` (`RecordedDetailGroup` = group name + `PatternItem[]`), rendered as a collapsed "Details" `Expander` in the card with the same groups as the Details tab. It is a *snapshot* — values are frozen at record time, unlike the live Details tab.
+**Detail snapshot — `StepDetailsMode`:** `ProcessViewModel.LoadStepDetails()` runs `PatternItemsFactory.CreatePatternItemsForElement` on a `Task.Run` and marshals the result into `RecordedStep.DetailGroups` (`RecordedDetailGroup` = group name + `PatternItem[]`), rendered as a "Details" `Expander` in the card with the same groups as the Details tab. It is a *snapshot* — values are frozen at read time, unlike the live Details tab. `AddStep` stamps each step with the mode that decides *when* that read happens:
 
-> ⚠️ Window capture passes `withDetails: false`. A subtree capture is hundreds of elements and full pattern reflection per element would stall the app. If that ever changes, throttle it.
+| `StepDetailsMode` | Used by | Behaviour |
+|---|---|---|
+| `None` | WIN | No Details expander at all (`SupportsDetails == false`) |
+| `Eager` | REC / AUTO | `EnsureDetailsLoaded()` fires from `AddStep`, right after the step is added |
+| `Lazy` | WIN+D | `EnsureDetailsLoaded()` fires from the `IsDetailsExpanded` setter, i.e. on first expand |
 
-Because the `RecordedStep` constructor does several UIA reads (sibling index via `FindAllChildren`, HelpText), `CaptureDialogTree` builds all `RecordedStep` instances on the background thread and only calls the `AddStep(target, step, withDetails)` overload inside `Dispatcher.Invoke`.
+`RecordedStep.EnsureDetailsLoaded()` is idempotent (`_detailsRequested`), so an eagerly-loaded step never re-reads when expanded. `IsLoadingDetails` drives the "reading ..." hint in the expander header and is cleared by `SetDetailGroups`, which `LoadStepDetails` always calls — including on failure — so the hint cannot get stuck.
+
+> ⚠️ Window capture must never use `Eager`. A subtree capture is hundreds of elements and full pattern reflection per element up front would stall the app; `Lazy` is what makes WIN+D viable.
+
+> ⚠️ `DetailsMode` / `SupportsDetails` have **no change notification** — `AddStep` assigns them before `target.Add(step)` so the expander's visibility binding sees the final value when the container is realized.
+
+Because the `RecordedStep` constructor does several UIA reads (sibling index via `FindAllChildren`, HelpText), `CaptureDialogTree` builds all `RecordedStep` instances on the background thread and only calls the `AddStep(target, step, detailsMode)` overload inside `Dispatcher.Invoke`.
 
 ### MVVM Base
 

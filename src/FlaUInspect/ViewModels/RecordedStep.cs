@@ -9,8 +9,22 @@ using FlaUInspect.Core.Extensions;
 
 namespace FlaUInspect.ViewModels;
 
+/// <summary>When — and whether — a recorded step reads the full pattern/detail snapshot.</summary>
+public enum StepDetailsMode {
+    /// <summary>Never. The card shows locators + HelpText only (WIN).</summary>
+    None,
+
+    /// <summary>In the background as soon as the step is recorded (REC / AUTO).</summary>
+    Eager,
+
+    /// <summary>The first time the user expands the card's Details expander (WIN-detail).</summary>
+    Lazy
+}
+
 public class RecordedStep : ObservableObject {
     public const string NoneText = "(none)";
+
+    private bool _detailsRequested;
 
     public RecordedStep(int stepNumber, ElementViewModel element) {
         _stepNumber = stepNumber;
@@ -84,23 +98,49 @@ public class RecordedStep : ObservableObject {
     public bool HasHelpText => HelpText != NoneText;
 
     /// <summary>
-    ///     Full detail snapshot (same groups as the Details tab). Filled in asynchronously right after the step is
-    ///     added, and only for steps recorded via REC / AUTO — window captures skip it because a whole subtree of
-    ///     pattern reads would freeze the UI.
+    ///     Full detail snapshot (same groups as the Details tab), filled in asynchronously. When it is read — or
+    ///     whether it is read at all — depends on <see cref="DetailsMode" />.
     /// </summary>
     public ObservableCollection<RecordedDetailGroup> DetailGroups { get; } = [];
+
+    /// <summary>Assign before the step is added to a bound collection; it has no change notification.</summary>
+    public StepDetailsMode DetailsMode { get; set; } = StepDetailsMode.None;
+
+    public bool SupportsDetails => DetailsMode != StepDetailsMode.None;
 
     public bool HasDetails {
         get => GetProperty<bool>();
         private set => SetProperty(value);
     }
 
-    public bool IsDetailsExpanded {
+    public bool IsLoadingDetails {
         get => GetProperty<bool>();
-        set => SetProperty(value);
+        private set => SetProperty(value);
     }
 
+    public bool IsDetailsExpanded {
+        get => GetProperty<bool>();
+        set {
+            if (SetProperty(value) && value) {
+                EnsureDetailsLoaded();
+            }
+        }
+    }
+
+    /// <summary>Set by <c>ProcessViewModel.AddStep</c>; kicks off the background pattern read for this step.</summary>
+    public Action? LoadDetailsAction { get; set; }
+
     public Action? DeleteAction { get; set; }
+
+    /// <summary>Triggers the detail read at most once, whether it was requested eagerly or by expanding the card.</summary>
+    public void EnsureDetailsLoaded() {
+        if (_detailsRequested || DetailsMode == StepDetailsMode.None || LoadDetailsAction == null) {
+            return;
+        }
+        _detailsRequested = true;
+        IsLoadingDetails = true;
+        LoadDetailsAction.Invoke();
+    }
 
     public ICommand CopyAutomationIdCommand { get; }
     public ICommand CopyNameCommand { get; }
@@ -116,6 +156,7 @@ public class RecordedStep : ObservableObject {
             DetailGroups.Add(group);
         }
         HasDetails = DetailGroups.Count > 0;
+        IsLoadingDetails = false;
     }
 
     /// <summary>Single source of truth for the clipboard format, used by both per-step and bulk copy.</summary>

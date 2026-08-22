@@ -114,12 +114,13 @@ public partial class ProcessWindow : Window {
     private void TreeViewControl_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e) {
         if (Keyboard.Modifiers != ModifierKeys.Control) return;
         if (DataContext is not ProcessViewModel processViewModel) return;
-        if (!processViewModel.IsRecording && !processViewModel.IsDialogCapturing) return;
+        bool capturesWindow = processViewModel.IsDialogCapturing || processViewModel.IsDialogCapturingWithDetails;
+        if (!processViewModel.IsRecording && !capturesWindow) return;
 
         ElementViewModel? element = FindElementViewModelAtPoint(e.GetPosition(TreeViewControl));
         if (element == null) return;
 
-        if (processViewModel.IsDialogCapturing) {
+        if (capturesWindow) {
             processViewModel.CaptureDialogTree(element);
         } else {
             processViewModel.RecordElement(element);

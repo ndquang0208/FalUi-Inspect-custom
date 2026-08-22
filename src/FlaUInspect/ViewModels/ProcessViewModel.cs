@@ -261,6 +261,7 @@ public class ProcessViewModel : ObservableObject {
             if (SetProperty(value) && value) {
                 IsAutoRecording = false;
                 IsDialogCapturing = false;
+                IsDialogCapturingWithDetails = false;
             }
         }
     }
@@ -272,6 +273,7 @@ public class ProcessViewModel : ObservableObject {
             if (changed && value) {
                 IsRecording = false;
                 IsDialogCapturing = false;
+                IsDialogCapturingWithDetails = false;
             }
             if (changed) {
                 SetMode();
@@ -285,6 +287,22 @@ public class ProcessViewModel : ObservableObject {
             if (SetProperty(value) && value) {
                 IsRecording = false;
                 IsAutoRecording = false;
+                IsDialogCapturingWithDetails = false;
+            }
+        }
+    }
+
+    /// <summary>
+    ///     WIN-detail: same subtree capture as <see cref="IsDialogCapturing" />, but each captured step also gets a
+    ///     Details expander that reads its pattern snapshot lazily, the first time the user opens it.
+    /// </summary>
+    public bool IsDialogCapturingWithDetails {
+        get => GetProperty<bool>();
+        set {
+            if (SetProperty(value) && value) {
+                IsRecording = false;
+                IsAutoRecording = false;
+                IsDialogCapturing = false;
             }
         }
     }
@@ -298,11 +316,11 @@ public class ProcessViewModel : ObservableObject {
     public ObservableCollection<RecordedStep> DialogCapturedSteps { get; } = [];
 
     public void RecordElement(ElementViewModel element) {
-        AddStep(RecordedSteps, element, withDetails: true);
+        AddStep(RecordedSteps, element, StepDetailsMode.Eager);
     }
 
-    private void AddStep(ObservableCollection<RecordedStep> target, ElementViewModel element, bool withDetails) {
-        AddStep(target, new RecordedStep(target.Count + 1, element), withDetails);
+    private void AddStep(ObservableCollection<RecordedStep> target, ElementViewModel element, StepDetailsMode detailsMode) {
+        AddStep(target, new RecordedStep(target.Count + 1, element), detailsMode);
     }
 
     /// <summary>
@@ -310,8 +328,10 @@ public class ProcessViewModel : ObservableObject {
     ///     (sibling index, HelpText), so window capture builds its steps on the background thread and only calls
     ///     this on the UI thread.
     /// </summary>
-    private void AddStep(ObservableCollection<RecordedStep> target, RecordedStep step, bool withDetails) {
+    private void AddStep(ObservableCollection<RecordedStep> target, RecordedStep step, StepDetailsMode detailsMode) {
         step.StepNumber = target.Count + 1;
+        step.DetailsMode = detailsMode;
+        step.LoadDetailsAction = () => LoadStepDetails(step);
         step.DeleteAction = () => {
             target.Remove(step);
             for (int i = 0; i < target.Count; i++)
@@ -319,8 +339,8 @@ public class ProcessViewModel : ObservableObject {
         };
         target.Add(step);
 
-        if (withDetails) {
-            LoadStepDetails(step);
+        if (detailsMode == StepDetailsMode.Eager) {
+            step.EnsureDetailsLoaded();
         }
     }
 
@@ -332,28 +352,35 @@ public class ProcessViewModel : ObservableObject {
         AutomationElement? element = step.Element.AutomationElement;
         PatternItemsFactory? factory = _patternItemsFactory;
         if (element == null || factory == null) {
+            step.SetDetailGroups([]);
             return;
         }
 
         Task.Run(() => {
+            List<RecordedDetailGroup> groups = [];
             try {
                 HashSet<PatternId> supportedPatterns = [.. element.GetSupportedPatterns()];
                 IDictionary<string, PatternItem[]> patternItems = factory.CreatePatternItemsForElement(element, supportedPatterns);
 
-                List<RecordedDetailGroup> groups = patternItems
+                groups = patternItems
                     .Where(kvp => kvp.Value.Length > 0)
                     .Select(kvp => new RecordedDetailGroup(kvp.Key, kvp.Value))
                     .ToList();
-
-                System.Windows.Application.Current.Dispatcher.Invoke(() => step.SetDetailGroups(groups));
             } catch (Exception e) {
                 _logger?.LogError($"LoadStepDetails failed: {e.Message}");
             }
+
+            System.Windows.Application.Current.Dispatcher.Invoke(() => step.SetDetailGroups(groups));
         });
     }
 
     public void CaptureDialogTree(ElementViewModel root) {
         if (root?.AutomationElement == null || IsCapturingDialog) return;
+
+        // WIN captures locators only; WIN-detail additionally offers a per-step Details expander that reads its
+        // snapshot on first expand. Never Eager here — reflecting every pattern of a few hundred elements up front
+        // would stall the app.
+        StepDetailsMode detailsMode = IsDialogCapturingWithDetails ? StepDetailsMode.Lazy : StepDetailsMode.None;
         IsCapturingDialog = true;
         Task.Run(() => {
             try {
@@ -364,7 +391,7 @@ public class ProcessViewModel : ObservableObject {
 
                 System.Windows.Application.Current.Dispatcher.Invoke(() => {
                     foreach (RecordedStep step in steps) {
-                        AddStep(DialogCapturedSteps, step, withDetails: false);
+                        AddStep(DialogCapturedSteps, step, detailsMode);
                     }
                 });
             } catch (Exception ex) {

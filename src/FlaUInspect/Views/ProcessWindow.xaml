@@ -239,15 +239,24 @@
                                     Command="{Binding CopyXPathCommand}" />
                         </Grid>
 
-                        <!-- Full detail snapshot, same groups as the Details tab (REC / AUTO steps only) -->
+                        <!-- Full detail snapshot, same groups as the Details tab.
+                             REC / AUTO fill it eagerly; WIN+D fills it the first time this expander is opened. -->
                         <Expander Margin="0,6,0,0"
                                   IsExpanded="{Binding IsDetailsExpanded}"
                                   Style="{StaticResource PatternExpanderStyle}"
-                                  Visibility="{Binding HasDetails, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                  Visibility="{Binding SupportsDetails, Converter={StaticResource BooleanToVisibilityConverter}}">
                             <Expander.Header>
-                                <TextBlock VerticalAlignment="Center"
-                                           FontWeight="Bold"
-                                           Text="Details" />
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock VerticalAlignment="Center"
+                                               FontWeight="Bold"
+                                               Text="Details" />
+                                    <TextBlock VerticalAlignment="Center"
+                                               Margin="6,0,0,0"
+                                               FontStyle="Italic"
+                                               FontWeight="Normal"
+                                               Text="reading ..."
+                                               Visibility="{Binding IsLoadingDetails, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                                </StackPanel>
                             </Expander.Header>
                             <ItemsControl ItemsSource="{Binding DetailGroups}">
                                 <ItemsControl.ItemTemplate>
@@ -486,6 +495,21 @@
                 </ButtonBase.ToolTip>
                 <TextBlock Text="WIN"
                            FontSize="9"
+                           FontWeight="Bold"
+                           HorizontalAlignment="Center"
+                           VerticalAlignment="Center" />
+            </ToggleButton>
+
+            <ToggleButton IsChecked="{Binding IsDialogCapturingWithDetails}"
+                          Style="{StaticResource RibbonToggleButtonStyle}">
+                <ButtonBase.ToolTip>
+                    <TextBlock>
+                        Window Capture Mode with details.<LineBreak />
+                        Same as WIN, but every captured step also gets a Details expander.<LineBreak />
+                        The pattern snapshot is read the first time you expand a step, not during capture.</TextBlock>
+                </ButtonBase.ToolTip>
+                <TextBlock Text="WIN+D"
+                           FontSize="7"
                            FontWeight="Bold"
                            HorizontalAlignment="Center"
                            VerticalAlignment="Center" />
@@ -923,7 +947,7 @@
                             <TextBlock HorizontalAlignment="Center"
                                        VerticalAlignment="Center"
                                        TextAlignment="Center"
-                                       Text="No window captured.&#x0a;Enable Window Capture (WIN) and Ctrl+Click a window root in the tree."
+                                       Text="No window captured.&#x0a;Enable Window Capture (WIN, or WIN+D for per-step details) and Ctrl+Click a window root in the tree."
                                        Visibility="{Binding DialogCapturedSteps.Count, Converter={StaticResource IntToVisibilityConverter}, ConverterParameter=EqualsZero}" />
                         </Grid>
                     </DockPanel>
