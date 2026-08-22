@@ -113,21 +113,26 @@ The card header is **`Label  |  ControlType  |  "Name"`** where `Label` = `"Wind
 
 **HelpText (all modes):** every card shows a `Help    :` row read from `element.Properties.HelpText` in the `RecordedStep` constructor (`"(none)"` when absent). `HasHelpText` gates the row's Copy button. This is the property WIN-captured cards rely on, but REC/AUTO cards get it too.
 
-**Detail snapshot — `StepDetailsMode`:** `ProcessViewModel.LoadStepDetails()` runs `PatternItemsFactory.CreatePatternItemsForElement` on a `Task.Run` and marshals the result into `RecordedStep.DetailGroups` (`RecordedDetailGroup` = group name + `PatternItem[]`), rendered as a "Details" `Expander` in the card with the same groups as the Details tab. It is a *snapshot* — values are frozen at read time, unlike the live Details tab. `AddStep` stamps each step with the mode that decides *when* that read happens:
+**Detail snapshot:** `ProcessViewModel.BuildDetailGroups(element)` runs `PatternItemsFactory.CreatePatternItemsForElement` and returns `List<RecordedDetailGroup>` (group name + `PatternItem[]`), stored in `RecordedStep.DetailGroups` and rendered as a "Details" `Expander` in the card with the same groups as the Details tab. It is a *snapshot* — values are frozen at read time, unlike the live Details tab. `BuildDetailGroups` does pure UIA work and mutates no bound state, so it is callable from any thread; every caller uses that.
 
-| `StepDetailsMode` | Used by | Behaviour |
+`RecordedStep.SupportsDetails` (a plain `bool`, set by `AddStep`) decides whether the card shows the expander at all. Two fill paths:
+
+| Path | Used by | When the read happens |
 |---|---|---|
-| `None` | WIN | No Details expander at all (`SupportsDetails == false`) |
-| `Eager` | REC / AUTO | `EnsureDetailsLoaded()` fires from `AddStep`, right after the step is added |
-| `Lazy` | WIN+D | `EnsureDetailsLoaded()` fires from the `IsDetailsExpanded` setter, i.e. on first expand |
+| `EnsureDetailsLoaded()` — fire-and-forget `Task.Run`, marshals `SetDetailGroups` back via the dispatcher | REC / AUTO | Right after `AddStep`, because the `Ctrl+Click` / focus callback must return immediately |
+| `SetDetailGroups(BuildDetailGroups(...))` called directly on the capture thread | WIN+D | During the capture pass, before the step is ever added to `DialogCapturedSteps` |
 
-`RecordedStep.EnsureDetailsLoaded()` is idempotent (`_detailsRequested`), so an eagerly-loaded step never re-reads when expanded. `IsLoadingDetails` drives the "reading ..." hint in the expander header and is cleared by `SetDetailGroups`, which `LoadStepDetails` always calls — including on failure — so the hint cannot get stuck.
+> ⚠️ **Details are never lazy.** An earlier WIN+D read its snapshot only when the user expanded a card, which meant *Copy All Steps* emitted details only for the cards that had been opened. Anything that defers the read must also make the copy commands fill in what is missing.
 
-> ⚠️ Window capture must never use `Eager`. A subtree capture is hundreds of elements and full pattern reflection per element up front would stall the app; `Lazy` is what makes WIN+D viable.
+The WIN+D path is safe off the UI thread only because the step is not bound to anything yet — `SetDetailGroups` touches an `ObservableCollection`, so once a step is in `DialogCapturedSteps` it is UI-thread-only.
 
-> ⚠️ `DetailsMode` / `SupportsDetails` have **no change notification** — `AddStep` assigns them before `target.Add(step)` so the expander's visibility binding sees the final value when the container is realized.
+`CopyStepsToClipboardAsync` (both `CopyAllStepsCommand` and `CopyAllDialogStepsCommand`, now `AsyncRelayCommand`) still re-checks `step.NeedsDetailsLoad` and fills in any gap before building the text — a safety net for steps recorded before `_patternItemsFactory` existed. The per-step `CopyAllCommand` does the same synchronously via `LoadDetailsNow()`.
 
-Because the `RecordedStep` constructor does several UIA reads (sibling index via `FindAllChildren`, HelpText), `CaptureDialogTree` builds all `RecordedStep` instances on the background thread and only calls the `AddStep(target, step, detailsMode)` overload inside `Dispatcher.Invoke`.
+`IsCapturingDialog` + `CaptureProgressText` ("142 / 380", throttled to every 10th element by `ReportCaptureProgress`) drive the Window tab's progress row; a WIN+D capture of a large window takes tens of seconds and would otherwise look hung. `IsPreparingCopy` shows "reading details ..." during the copy fill-in pass.
+
+> ⚠️ `SupportsDetails` has **no change notification** — `AddStep` assigns it before `target.Add(step)` so the expander's visibility binding sees the final value when the container is realized.
+
+Because the `RecordedStep` constructor does several UIA reads (sibling index via `FindAllChildren`, HelpText), `CaptureDialogTree` builds all `RecordedStep` instances on the background thread and only calls the `AddStep(target, step, withDetails)` overload inside `Dispatcher.Invoke`.
 
 ### MVVM Base
 

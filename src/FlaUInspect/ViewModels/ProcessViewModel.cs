@@ -128,15 +128,36 @@ public class ProcessViewModel : ObservableObject {
         NextMatchCommand = new RelayCommand(_ => GoToMatch(+1));
         PreviousMatchCommand = new RelayCommand(_ => GoToMatch(-1));
 
-        CopyAllStepsCommand = new RelayCommand(_ => CopyStepsToClipboard(RecordedSteps));
+        CopyAllStepsCommand = new AsyncRelayCommand(() => CopyStepsToClipboardAsync(RecordedSteps));
 
         ClearDialogCaptureCommand = new RelayCommand(_ => DialogCapturedSteps.Clear());
-        CopyAllDialogStepsCommand = new RelayCommand(_ => CopyStepsToClipboard(DialogCapturedSteps));
+        CopyAllDialogStepsCommand = new AsyncRelayCommand(() => CopyStepsToClipboardAsync(DialogCapturedSteps));
     }
 
-    private static void CopyStepsToClipboard(IEnumerable<RecordedStep> steps) {
+    /// <summary>
+    ///     Copies every step, filling in any detail snapshot that is still missing first. Without that pass a step
+    ///     whose card the user never opened would be copied without its details, so the clipboard silently held
+    ///     less than the panel showed.
+    /// </summary>
+    private async Task CopyStepsToClipboardAsync(IEnumerable<RecordedStep> steps) {
         var list = steps.ToList();
         if (list.Count == 0) return;
+
+        List<RecordedStep> pending = list.Where(step => step.NeedsDetailsLoad).ToList();
+        if (pending.Count > 0) {
+            IsPreparingCopy = true;
+            try {
+                await Task.Run(() => {
+                    foreach (RecordedStep step in pending) {
+                        List<RecordedDetailGroup> groups = step.ReadDetails();
+                        System.Windows.Application.Current.Dispatcher.Invoke(() => step.SetDetailGroups(groups));
+                    }
+                });
+            } finally {
+                IsPreparingCopy = false;
+            }
+        }
+
         var sb = new System.Text.StringBuilder();
         foreach (RecordedStep step in list) {
             sb.Append(step.BuildSummaryText());
@@ -312,15 +333,27 @@ public class ProcessViewModel : ObservableObject {
         private set => SetProperty(value);
     }
 
+    /// <summary>"142 / 380" while a window capture runs, empty otherwise.</summary>
+    public string CaptureProgressText {
+        get => GetProperty<string>() ?? string.Empty;
+        private set => SetProperty(value);
+    }
+
+    /// <summary>True while a copy command is filling in detail snapshots it found missing.</summary>
+    public bool IsPreparingCopy {
+        get => GetProperty<bool>();
+        private set => SetProperty(value);
+    }
+
     public ObservableCollection<RecordedStep> RecordedSteps { get; } = [];
     public ObservableCollection<RecordedStep> DialogCapturedSteps { get; } = [];
 
     public void RecordElement(ElementViewModel element) {
-        AddStep(RecordedSteps, element, StepDetailsMode.Eager);
+        AddStep(RecordedSteps, element, withDetails: true);
     }
 
-    private void AddStep(ObservableCollection<RecordedStep> target, ElementViewModel element, StepDetailsMode detailsMode) {
-        AddStep(target, new RecordedStep(target.Count + 1, element), detailsMode);
+    private void AddStep(ObservableCollection<RecordedStep> target, ElementViewModel element, bool withDetails) {
+        AddStep(target, new RecordedStep(target.Count + 1, element), withDetails);
     }
 
     /// <summary>
@@ -328,10 +361,10 @@ public class ProcessViewModel : ObservableObject {
     ///     (sibling index, HelpText), so window capture builds its steps on the background thread and only calls
     ///     this on the UI thread.
     /// </summary>
-    private void AddStep(ObservableCollection<RecordedStep> target, RecordedStep step, StepDetailsMode detailsMode) {
+    private void AddStep(ObservableCollection<RecordedStep> target, RecordedStep step, bool withDetails) {
         step.StepNumber = target.Count + 1;
-        step.DetailsMode = detailsMode;
-        step.LoadDetailsAction = () => LoadStepDetails(step);
+        step.SupportsDetails = withDetails;
+        step.DetailsProvider = () => BuildDetailGroups(step.Element.AutomationElement);
         step.DeleteAction = () => {
             target.Remove(step);
             for (int i = 0; i < target.Count; i++)
@@ -339,67 +372,89 @@ public class ProcessViewModel : ObservableObject {
         };
         target.Add(step);
 
-        if (detailsMode == StepDetailsMode.Eager) {
+        // No-ops when the caller already stored a snapshot (window capture reads its details up front).
+        if (withDetails) {
             step.EnsureDetailsLoaded();
         }
     }
 
     /// <summary>
-    ///     Reads the same detail groups the Details tab shows and attaches them to the step. Runs off the UI thread
-    ///     because reflecting over every supported pattern is slow enough to stall AUTO recording otherwise.
+    ///     Reads the same detail groups the Details tab shows. Pure UIA work with no bound-state mutation, so it is
+    ///     safe to call from a background thread — which every caller does, because reflecting over every supported
+    ///     pattern is slow enough to stall AUTO recording otherwise.
     /// </summary>
-    private void LoadStepDetails(RecordedStep step) {
-        AutomationElement? element = step.Element.AutomationElement;
+    private List<RecordedDetailGroup> BuildDetailGroups(AutomationElement? element) {
         PatternItemsFactory? factory = _patternItemsFactory;
         if (element == null || factory == null) {
-            step.SetDetailGroups([]);
-            return;
+            return [];
         }
 
-        Task.Run(() => {
-            List<RecordedDetailGroup> groups = [];
-            try {
-                HashSet<PatternId> supportedPatterns = [.. element.GetSupportedPatterns()];
-                IDictionary<string, PatternItem[]> patternItems = factory.CreatePatternItemsForElement(element, supportedPatterns);
+        try {
+            HashSet<PatternId> supportedPatterns = [.. element.GetSupportedPatterns()];
+            IDictionary<string, PatternItem[]> patternItems = factory.CreatePatternItemsForElement(element, supportedPatterns);
 
-                groups = patternItems
-                    .Where(kvp => kvp.Value.Length > 0)
-                    .Select(kvp => new RecordedDetailGroup(kvp.Key, kvp.Value))
-                    .ToList();
-            } catch (Exception e) {
-                _logger?.LogError($"LoadStepDetails failed: {e.Message}");
-            }
-
-            System.Windows.Application.Current.Dispatcher.Invoke(() => step.SetDetailGroups(groups));
-        });
+            return patternItems
+                .Where(kvp => kvp.Value.Length > 0)
+                .Select(kvp => new RecordedDetailGroup(kvp.Key, kvp.Value))
+                .ToList();
+        } catch (Exception e) {
+            _logger?.LogError($"BuildDetailGroups failed: {e.Message}");
+            return [];
+        }
     }
 
     public void CaptureDialogTree(ElementViewModel root) {
         if (root?.AutomationElement == null || IsCapturingDialog) return;
 
-        // WIN captures locators only; WIN-detail additionally offers a per-step Details expander that reads its
-        // snapshot on first expand. Never Eager here — reflecting every pattern of a few hundred elements up front
-        // would stall the app.
-        StepDetailsMode detailsMode = IsDialogCapturingWithDetails ? StepDetailsMode.Lazy : StepDetailsMode.None;
+        bool withDetails = IsDialogCapturingWithDetails;
         IsCapturingDialog = true;
+        CaptureProgressText = string.Empty;
+
         Task.Run(() => {
             try {
                 var collected = new List<ElementViewModel>();
                 CollectSubtree(root, collected, depth: 0, maxDepth: 50);
 
-                List<RecordedStep> steps = collected.Select(elem => new RecordedStep(0, elem)).ToList();
+                // Everything here — locators, HelpText and (for WIN+D) the whole detail snapshot — is read before
+                // any step reaches the UI, so the cards arrive complete and Copy All Steps is never partial. The
+                // steps are not bound to anything yet, which is what makes SetDetailGroups safe off the UI thread.
+                var steps = new List<RecordedStep>(collected.Count);
+                for (int i = 0; i < collected.Count; i++) {
+                    var step = new RecordedStep(0, collected[i]);
+                    if (withDetails) {
+                        step.SupportsDetails = true;
+                        step.SetDetailGroups(BuildDetailGroups(collected[i].AutomationElement));
+                    }
+                    steps.Add(step);
+                    ReportCaptureProgress(i + 1, collected.Count);
+                }
 
                 System.Windows.Application.Current.Dispatcher.Invoke(() => {
                     foreach (RecordedStep step in steps) {
-                        AddStep(DialogCapturedSteps, step, detailsMode);
+                        AddStep(DialogCapturedSteps, step, withDetails);
                     }
                 });
             } catch (Exception ex) {
                 _logger?.LogError($"CaptureDialogTree failed: {ex.Message}");
             } finally {
-                System.Windows.Application.Current.Dispatcher.Invoke(() => IsCapturingDialog = false);
+                System.Windows.Application.Current.Dispatcher.Invoke(() => {
+                    IsCapturingDialog = false;
+                    CaptureProgressText = string.Empty;
+                });
             }
         });
+    }
+
+    /// <summary>
+    ///     Throttled so a large subtree does not flood the dispatcher with text updates. A WIN+D capture can take
+    ///     tens of seconds, so the user needs to see it moving rather than guess whether the app hung.
+    /// </summary>
+    private void ReportCaptureProgress(int done, int total) {
+        if (done != total && done % 10 != 0) {
+            return;
+        }
+        System.Windows.Application.Current.Dispatcher.BeginInvoke(
+            new Action(() => CaptureProgressText = $"{done} / {total}"));
     }
 
     private static void CollectSubtree(ElementViewModel node, List<ElementViewModel> result, int depth, int maxDepth) {

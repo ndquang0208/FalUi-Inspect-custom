@@ -9,18 +9,6 @@ using FlaUInspect.Core.Extensions;
 
 namespace FlaUInspect.ViewModels;
 
-/// <summary>When — and whether — a recorded step reads the full pattern/detail snapshot.</summary>
-public enum StepDetailsMode {
-    /// <summary>Never. The card shows locators + HelpText only (WIN).</summary>
-    None,
-
-    /// <summary>In the background as soon as the step is recorded (REC / AUTO).</summary>
-    Eager,
-
-    /// <summary>The first time the user expands the card's Details expander (WIN-detail).</summary>
-    Lazy
-}
-
 public class RecordedStep : ObservableObject {
     public const string NoneText = "(none)";
 
@@ -73,7 +61,10 @@ public class RecordedStep : ObservableObject {
             if (HasHelpText)
                 Clipboard.SetText(HelpText);
         });
-        CopyAllCommand = new RelayCommand(_ => Clipboard.SetText(BuildSummaryText()));
+        CopyAllCommand = new RelayCommand(_ => {
+            LoadDetailsNow();
+            Clipboard.SetText(BuildSummaryText());
+        });
         DeleteCommand = new RelayCommand(_ => DeleteAction?.Invoke());
     }
 
@@ -98,15 +89,16 @@ public class RecordedStep : ObservableObject {
     public bool HasHelpText => HelpText != NoneText;
 
     /// <summary>
-    ///     Full detail snapshot (same groups as the Details tab), filled in asynchronously. When it is read — or
-    ///     whether it is read at all — depends on <see cref="DetailsMode" />.
+    ///     Full detail snapshot, same groups as the Details tab. REC / AUTO fill it in the background right after
+    ///     the step is added; WIN+D fills it during the capture pass, before the step ever reaches the UI.
     /// </summary>
     public ObservableCollection<RecordedDetailGroup> DetailGroups { get; } = [];
 
-    /// <summary>Assign before the step is added to a bound collection; it has no change notification.</summary>
-    public StepDetailsMode DetailsMode { get; set; } = StepDetailsMode.None;
-
-    public bool SupportsDetails => DetailsMode != StepDetailsMode.None;
+    /// <summary>
+    ///     Whether this step shows a Details expander at all (false for plain WIN). Assign before the step is added
+    ///     to a bound collection — it has no change notification.
+    /// </summary>
+    public bool SupportsDetails { get; set; }
 
     public bool HasDetails {
         get => GetProperty<bool>();
@@ -127,19 +119,55 @@ public class RecordedStep : ObservableObject {
         }
     }
 
-    /// <summary>Set by <c>ProcessViewModel.AddStep</c>; kicks off the background pattern read for this step.</summary>
-    public Action? LoadDetailsAction { get; set; }
+    /// <summary>True once a snapshot has actually been stored, even an empty one.</summary>
+    public bool AreDetailsLoaded {
+        get => GetProperty<bool>();
+        private set => SetProperty(value);
+    }
+
+    /// <summary>A step whose details a copy command still has to fill in before it can emit a complete card.</summary>
+    public bool NeedsDetailsLoad => SupportsDetails && !AreDetailsLoaded && DetailsProvider != null;
+
+    /// <summary>
+    ///     Set by <c>ProcessViewModel.AddStep</c>. Pure UIA read with no VM state mutation, so it is safe to call
+    ///     from any thread — that is what lets a bulk copy fill in lazy steps off the UI thread.
+    /// </summary>
+    public Func<List<RecordedDetailGroup>>? DetailsProvider { get; set; }
 
     public Action? DeleteAction { get; set; }
 
-    /// <summary>Triggers the detail read at most once, whether it was requested eagerly or by expanding the card.</summary>
+    /// <summary>Reads the snapshot without touching bound state. Callable from a background thread.</summary>
+    public List<RecordedDetailGroup> ReadDetails() {
+        return DetailsProvider?.Invoke() ?? [];
+    }
+
+    /// <summary>
+    ///     Kicks off the read in the background, at most once per step. Used by the REC / AUTO path, where the
+    ///     recording callback must return immediately. No-ops for a step whose snapshot is already stored.
+    /// </summary>
     public void EnsureDetailsLoaded() {
-        if (_detailsRequested || DetailsMode == StepDetailsMode.None || LoadDetailsAction == null) {
+        if (_detailsRequested || !SupportsDetails || DetailsProvider == null) {
             return;
         }
         _detailsRequested = true;
         IsLoadingDetails = true;
-        LoadDetailsAction.Invoke();
+
+        Func<List<RecordedDetailGroup>> provider = DetailsProvider;
+        Task.Run(() => {
+            List<RecordedDetailGroup> groups = provider();
+            System.Windows.Application.Current.Dispatcher.Invoke(() => SetDetailGroups(groups));
+        });
+    }
+
+    /// <summary>
+    ///     Blocking read on the calling (UI) thread, for the per-step Copy All button — copying a card must not
+    ///     silently drop its details just because the user never expanded it. One element is cheap enough.
+    /// </summary>
+    public void LoadDetailsNow() {
+        if (!NeedsDetailsLoad) {
+            return;
+        }
+        SetDetailGroups(ReadDetails());
     }
 
     public ICommand CopyAutomationIdCommand { get; }
@@ -155,6 +183,8 @@ public class RecordedStep : ObservableObject {
         foreach (RecordedDetailGroup group in groups) {
             DetailGroups.Add(group);
         }
+        _detailsRequested = true;
+        AreDetailsLoaded = true;
         HasDetails = DetailGroups.Count > 0;
         IsLoadingDetails = false;
     }

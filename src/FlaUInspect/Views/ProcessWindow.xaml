@@ -505,8 +505,8 @@
                 <ButtonBase.ToolTip>
                     <TextBlock>
                         Window Capture Mode with details.<LineBreak />
-                        Same as WIN, but every captured step also gets a Details expander.<LineBreak />
-                        The pattern snapshot is read the first time you expand a step, not during capture.</TextBlock>
+                        Same as WIN, but every captured step also carries the full Details snapshot.<LineBreak />
+                        Reading every pattern of every element is slow - a large window can take a while.</TextBlock>
                 </ButtonBase.ToolTip>
                 <TextBlock Text="WIN+D"
                            FontSize="7"
@@ -937,6 +937,15 @@
                                          VerticalAlignment="Center"
                                          IsIndeterminate="True"
                                          Visibility="{Binding IsCapturingDialog, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                            <TextBlock Margin="6,0,0,0"
+                                       VerticalAlignment="Center"
+                                       FontStyle="Italic"
+                                       Text="{Binding CaptureProgressText}" />
+                            <TextBlock Margin="6,0,0,0"
+                                       VerticalAlignment="Center"
+                                       FontStyle="Italic"
+                                       Text="reading details ..."
+                                       Visibility="{Binding IsPreparingCopy, Converter={StaticResource BooleanToVisibilityConverter}}" />
                         </StackPanel>
                         <Grid>
                             <ScrollViewer VerticalScrollBarVisibility="Auto">
