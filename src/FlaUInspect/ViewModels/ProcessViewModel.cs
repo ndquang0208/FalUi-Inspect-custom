@@ -707,6 +707,10 @@ public class ProcessViewModel : ObservableObject {
     public void ElementToSelectChanged(AutomationElement? obj, bool forceExpand = false) {
         Stack<AutomationElement> pathToRoot = new ();
 
+        if (obj != null && !forceExpand && obj.Properties.ProcessId.ValueOrDefault != _processId) {
+            _logger?.LogWarning($"Ignored element from process {obj.Properties.ProcessId.ValueOrDefault}: inspector is attached to process {_processId}.");
+        }
+
         while (obj != null && obj.Properties.ProcessId == _processId) {
             // Break on circular relationship (should not happen?)
             if (pathToRoot.Contains(obj) || obj.Equals(_rootElement)) {
@@ -726,12 +730,26 @@ public class ProcessViewModel : ObservableObject {
             }
         }
 
+        if (!forceExpand && pathToRoot.Count > 0) {
+            EnsureTopLevelRoot(pathToRoot.Peek());
+        }
+
         IEnumerable<ElementViewModel> viewModels = Elements;
         ElementViewModel? nextElementVm = null;
+        ElementViewModel? parentVm = null;
 
         while (pathToRoot.Count > 0) {
             AutomationElement elementOnPath = pathToRoot.Pop();
             nextElementVm = FindElement(viewModels, elementOnPath);
+
+            // Parent was expanded before this element existed (popup/dropdown opened later): reload its children.
+            if (nextElementVm == null && parentVm is { IsExpanded: true }) {
+                CollapseElement(parentVm);
+                ExpandElement(parentVm);
+                nextElementVm = FindElement(viewModels, elementOnPath);
+            }
+
+            parentVm = nextElementVm;
 
             if (nextElementVm != null && (forceExpand || !nextElementVm.IsExpanded)) {
                 if (pathToRoot.Count != 0) {
@@ -746,6 +764,38 @@ public class ProcessViewModel : ObservableObject {
         }
 
         SelectedItem = nextElementVm;
+    }
+
+    // Popups, drop-downs and dialogs are separate top-level windows of the process, so they are not under
+    // _rootElement and were never loaded into Elements. Add them as extra Level 0 roots (the main window's
+    // children are Level 1) so hover / focus / AUTO can select them. Roots whose window is gone are pruned.
+    private void EnsureTopLevelRoot(AutomationElement topLevel) {
+        if (FindElement(Elements, topLevel) != null) {
+            return;
+        }
+
+        for (int i = Elements.Count - 1; i >= 0; i--) {
+            ElementViewModel root = Elements[i];
+
+            if (root.Level == 0 && root.Parent == null && !IsAlive(root.AutomationElement)) {
+                CollapseElement(root);
+                Elements.Remove(root);
+            }
+        }
+
+        Elements.Add(new ElementViewModel(topLevel, null, 0, _logger));
+    }
+
+    private static bool IsAlive(AutomationElement? element) {
+        if (element == null) {
+            return false;
+        }
+
+        try {
+            return element.Properties.ProcessId.TryGetValue(out _);
+        } catch {
+            return false;
+        }
     }
 
     private ElementViewModel? FindElement(IEnumerable<ElementViewModel> viewModels, AutomationElement element) {

@@ -1,6 +1,8 @@
+using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
 using FlaUI.Core.AutomationElements;
@@ -13,11 +15,40 @@ using Window = System.Windows.Window;
 namespace FlaUInspect.Views;
 
 public partial class ProcessWindow : Window {
+    private const int SwpNoSize = 0x0001;
+    private const int SwpNoMove = 0x0002;
+    private const int SwpNoActivate = 0x0010;
+    private static readonly IntPtr HwndTopmost = new (-1);
+
     public ProcessWindow() {
         InitializeComponent();
         Closed += ProcessWindow_Closed;
         Loaded += MainWindow_Loaded;
+        Activated += (_, _) => ReassertTopmost();
+        Deactivated += async (_, _) => {
+            // Wait for the window that took focus to finish raising itself, otherwise it ends up above us.
+            await Task.Delay(150);
+            ReassertTopmost();
+        };
     }
+
+    // WPF applies Topmost only when the property changes. A target app that is itself topmost (kiosk / POS apps)
+    // is raised above us when it is Alt+Tabbed to, and nothing puts us back, so re-assert it on focus changes.
+    private void ReassertTopmost() {
+        if (DataContext is not ProcessViewModel { IsAlwaysOnTop: true } || WindowState == WindowState.Minimized) {
+            return;
+        }
+
+        IntPtr handle = new WindowInteropHelper(this).Handle;
+
+        if (handle != IntPtr.Zero) {
+            SetWindowPos(handle, HwndTopmost, 0, 0, 0, 0, SwpNoMove | SwpNoSize | SwpNoActivate);
+        }
+    }
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int x, int y, int cx, int cy, int flags);
 
     private void MainWindow_Loaded(object sender, EventArgs e) {
         if (DataContext is ProcessViewModel processViewModel) {
