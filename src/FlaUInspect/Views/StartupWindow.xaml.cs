@@ -36,6 +36,8 @@ public partial class StartupWindow {
 
     private void OpenProcessWindow(AutomationBase automationBase) {
         if (ProcessesListBox.SelectedItem is ProcessWindowInfo processWindowInfo) {
+            _logger.LogInformation($"Open process window: pid {processWindowInfo.ProcessId}, hwnd 0x{processWindowInfo.MainWindowHandle.ToInt64():X}, "
+                                   + $"'{processWindowInfo.WindowTitle}', {automationBase.GetType().Name}");
             HoverMouseInitialize();
             ProcessViewModel processViewModel = new (automationBase, processWindowInfo.ProcessId, processWindowInfo.MainWindowHandle, _logger);
 

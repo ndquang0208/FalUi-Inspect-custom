@@ -19,6 +19,7 @@ public partial class App {
     public static InternalLogger Logger { get; } = new ();
 
     protected override void OnStartup(StartupEventArgs e) {
+        StartFileLog();
         base.OnStartup(e);
 
         ServiceCollection services = new ();
@@ -81,6 +82,22 @@ public partial class App {
         //     mainWindow.Show();
         // }
 #endif
+    }
+
+    /// <summary>
+    ///     log.txt next to the exe (see <see cref="FileLog" />). The handlers only log — they do not mark exceptions as
+    ///     handled, so a crash still closes the app as before, but it now leaves its stack trace behind. A session that
+    ///     ends without the "exited" line was killed, crashed, or froze (the watchdog line says which).
+    /// </summary>
+    private void StartFileLog() {
+        FileLog.Initialize();
+
+        DispatcherUnhandledException += (_, args) => FileLog.WriteFatal("Unhandled exception on the UI thread", args.Exception);
+        AppDomain.CurrentDomain.UnhandledException += (_, args) => FileLog.WriteFatal("Unhandled exception", args.ExceptionObject);
+        TaskScheduler.UnobservedTaskException += (_, args) => FileLog.Write("ERROR", $"Unobserved task exception:{Environment.NewLine}{args.Exception}");
+        Exit += (_, args) => FileLog.Write("INFO", $"===== FlaUInspect exited (code {args.ApplicationExitCode}) =====");
+
+        FileLog.StartUiWatchdog(Dispatcher);
     }
 
     public static void ApplyAppOption(FlaUiAppSettings settings) {

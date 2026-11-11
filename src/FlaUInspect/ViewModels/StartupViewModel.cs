@@ -10,6 +10,7 @@ using FlaUI.Core.AutomationElements;
 using FlaUI.Core.Definitions;
 using FlaUI.UIA3;
 using FlaUInspect.Core;
+using FlaUInspect.Core.Logger;
 using FlaUInspect.Settings;
 using Microsoft.Extensions.DependencyInjection;
 using Application = System.Windows.Application;
@@ -266,6 +267,7 @@ public class StartupViewModel : ObservableObject {
 
     public async Task Init() {
         IsBusy = true;
+        App.Logger.LogInformation("Load process list");
         await Task.Delay(100); // Simulate some loading time;
         int currentProcessId = Environment.ProcessId;
         IEnumerable<ProcessWindowInfo> collection = GetChildren(_defaultAutomation.GetDesktop())
@@ -277,6 +279,7 @@ public class StartupViewModel : ObservableObject {
                                                     .ToList();
         Processes = new ObservableCollection<ProcessWindowInfo>(collection);
         IsBusy = false;
+        App.Logger.LogInformation($"Load process list done: {Processes.Count} windows");
         return;
 
         AutomationElement[] GetChildren(AutomationElement el) {

@@ -6,6 +6,7 @@ using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
 using FlaUI.Core.AutomationElements;
+using FlaUInspect.Core.Logger;
 using FlaUInspect.ViewModels;
 using Button = System.Windows.Controls.Button;
 using MenuItem = System.Windows.Controls.MenuItem;
@@ -86,6 +87,7 @@ public partial class ProcessWindow : Window {
     }
 
     private void SelectWindowClick(object sender, RoutedEventArgs e) {
+        App.Logger.LogInformation("Folder button: show the process list");
         (Application.Current.MainWindow as StartupWindow)?.Show();
     }
 

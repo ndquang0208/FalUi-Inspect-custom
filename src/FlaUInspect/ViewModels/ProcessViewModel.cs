@@ -596,6 +596,7 @@ public class ProcessViewModel : ObservableObject {
     public event Action CopiedNotificationRequested;
 
     public void Initialize() {
+        _logger?.LogInformation($"Load tree (open / Refresh): pid {_processId}, hwnd 0x{_windowHandle.ToInt64():X}");
         PatternItemsFactory patternItemsFactory = new (_automation);
 
         AutomationElement? rootElement;
@@ -638,6 +639,7 @@ public class ProcessViewModel : ObservableObject {
             OnPropertyChanged(nameof(Elements));
             OnPropertyChanged(nameof(ElementPatterns));
         });
+        _logger?.LogInformation($"Load tree done: {topChildren.Count} top-level elements");
     }
 
     private void RunSearchOnBackground() {

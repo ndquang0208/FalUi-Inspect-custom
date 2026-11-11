@@ -138,6 +138,16 @@ The WIN+D path is safe off the UI thread only because the step is not bound to a
 
 Because the `RecordedStep` constructor does several UIA reads (sibling index via `FindAllChildren`, HelpText), `CaptureDialogTree` builds all `RecordedStep` instances on the background thread and only calls the `AddStep(target, step, withDetails)` overload inside `Dispatcher.Invoke`.
 
+### Crash / freeze log (`log.txt`)
+
+`Core/Logger/FileLog.cs` appends to `log.txt` **next to FlaUInspect.exe** (`AppContext.BaseDirectory`, which is the exe folder for the single-file release too), falling back to `%LOCALAPPDATA%\FlaUInspect\log.txt` when that folder is not writable. It rolls over to `log.old.txt` above 5 MB. Purpose: testers who unzip a release can send the file back.
+
+- `App.StartFileLog()` (first thing in `OnStartup`) writes a session header (informational version incl. git SHA, exe build time, OS, .NET), hooks `DispatcherUnhandledException` / `AppDomain.UnhandledException` / `TaskScheduler.UnobservedTaskException`, and writes an "exited" line on `Exit`. The handlers **only log** — they do not set `Handled`, so crashes still close the app. A session with no "exited" line was killed or crashed.
+- `FileLog.StartUiWatchdog` pings the dispatcher every 2 s and logs when the UI thread does not answer for 5 s, and again when it recovers. A hang leaves no exception, so this is the only trace of a freeze.
+- Every `InternalLogger` message (`_logger.LogError(...)` etc.) is mirrored to the file. Breadcrumb `LogInformation` lines mark: process list load start/done, open process window, tree load (open / Refresh) start/done, folder button. A "start" without its "done" pinpoints where something hung.
+- `InternalLogger.Log` only calls `string.Format` when there are args, and never lets a `FormatException` escape — callers pass raw exception text, which can contain braces, from inside `catch` blocks.
+- Every `FileLog` member swallows its own failures. Keep log strings ASCII (no em dashes) so the file reads correctly in any viewer.
+
 ### MVVM Base
 
 `ObservableObject` backs all properties via an internal `Dictionary<string, object?>` — no explicit backing fields needed. Use `GetProperty<T>()` / `SetProperty(value)` in property getters/setters. `SetProperty` returns `bool` (changed or not) for side-effect chaining.
