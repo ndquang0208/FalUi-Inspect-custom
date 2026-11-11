@@ -357,18 +357,20 @@
                 </Viewbox>
             </RadioButton>
 
-            <RadioButton GroupName="SelectionMode"
-                         IsChecked="{Binding EnableHighLightSelectionMode}"
-                         Style="{StaticResource ProcessRadioButtonStyle}">
+            <!-- Not in the SelectionMode group: Select is an independent toggle (on by default) that works
+                 together with Hover / Focus Tracking. -->
+            <ToggleButton IsChecked="{Binding EnableHighLightSelectionMode}"
+                          Margin="2"
+                          Style="{StaticResource RibbonToggleButtonStyle}">
                 <ButtonBase.ToolTip>
                     <TextBlock>
-                        Enable Select Mode.<LineBreak />
-                        Highlight selected control.</TextBlock>
+                        Select Mode (on by default).<LineBreak />
+                        Highlight the selected control. Works together with Hover / Focus Tracking.</TextBlock>
                 </ButtonBase.ToolTip>
                 <Viewbox Style="{StaticResource ViewBoxStyle}">
                     <ContentControl Content="{StaticResource EnableHoverModeIcon}" />
                 </Viewbox>
-            </RadioButton>
+            </ToggleButton>
             <RadioButton GroupName="SelectionMode"
                          IsChecked="{Binding EnableFocusTrackingMode}"
                          Style="{StaticResource ProcessRadioButtonStyle}">

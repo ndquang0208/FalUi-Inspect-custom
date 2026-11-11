@@ -72,15 +72,19 @@ Filter does **not** run on every keystroke — only when the user presses Enter 
 
 **Known limitation:** the filter is bound to the current `Elements` instance. `Initialize` replaces `Elements` wholesale, so Refresh clears the filter — `SearchText` survives in the box but the UI shows the full tree until the user presses Enter again.
 
-### Three Selection Modes
+### Selection Modes
 
-All three are mutually exclusive radio buttons. `SetMode()` is called on every mode change:
+Hover and Focus are mutually exclusive radio buttons (`SetMode()` runs on every change). **Select is an independent `ToggleButton`, on by default**, that combines with either of them and with AUTO:
 
-| Mode | Trigger | Mechanism |
-|------|---------|-----------|
-| `EnableHoverMode` | Ctrl + mouse over target app | `HoverManager` (300ms timer, `FromPoint`) |
-| `EnableHighLightSelectionMode` | Manual tree click | `TrackSelectedItem` shows overlay on selection |
-| `EnableFocusTrackingMode` | Tab/focus in target app | `FocusTrackingMode` (UIA `FocusChangedEvent`) |
+| Mode | Kind | Trigger | Mechanism |
+|------|------|---------|-----------|
+| `EnableHoverMode` | radio | Ctrl + mouse over target app | `HoverManager` (300ms timer, `FromPoint`) |
+| `EnableFocusTrackingMode` | radio | Tab/focus in target app | `FocusTrackingMode` (UIA `FocusChangedEvent`) |
+| `EnableHighLightSelectionMode` | toggle, default on | any change of `SelectedItem` | `UpdateSelectionHighlight` → `TrackSelectedItem` overlay |
+
+`UpdateSelectionHighlight()` is the single place that decides whether the selection overlay is shown; Select is the only switch for it (Focus/AUTO no longer force it on). The Select setter calls it directly, not `SetMode()`, so toggling Select never restarts focus tracking. Search no longer flips Select on.
+
+> ⚠️ **Select + Hover:** the overlay windows take part in hit testing — UIA `FromPoint` over a highlighted element returns the overlay (inspector process), which `HoverManager` ignores. Two guards keep Select from blocking Hover: a hover-driven selection (`_isHoverSelecting`) clears the selection overlay instead of drawing one, and `HoverManager.OwnProcessHit` lets `ProcessViewModel` dispose the overlay when a Ctrl-hover probe lands on it (`ElementOverlay.Covers`), so the next 300ms tick reaches the real element.
 
 `IsAutoRecording` (AUTO button) starts focus tracking regardless of the radio selection and auto-appends every focused element to `RecordedSteps`.
 

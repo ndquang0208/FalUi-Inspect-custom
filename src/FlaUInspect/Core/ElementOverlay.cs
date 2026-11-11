@@ -8,6 +8,7 @@ namespace FlaUInspect.Core;
 public class ElementOverlay : IDisposable {
 
     private OverlayRectangleForm[] _overlayRectangleFormList = [];
+    private Rectangle[] _shownRectangles = [];
 
     public ElementOverlay(ElementOverlayConfiguration configuration) {
         Configuration = configuration;
@@ -53,6 +54,16 @@ public class ElementOverlay : IDisposable {
             overlayRectangleForm.Dispose();
         }
         _overlayRectangleFormList = [];
+        _shownRectangles = [];
+    }
+
+    /// <summary>
+    ///     True when one of the overlay windows currently on screen lies under <paramref name="screenPoint" />. The
+    ///     overlay windows take part in hit testing, so UIA <c>FromPoint</c> there returns the overlay, not the
+    ///     element beneath it.
+    /// </summary>
+    public bool Covers(System.Drawing.Point screenPoint) {
+        return _shownRectangles.Any(r => r.Contains(screenPoint));
     }
 
     public void Show(Rectangle rectangle) {
@@ -72,6 +83,7 @@ public class ElementOverlay : IDisposable {
         }
 
         _overlayRectangleFormList = rectangleForms.ToArray();
+        _shownRectangles = rectangles;
     }
 
     [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]

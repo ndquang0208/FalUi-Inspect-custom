@@ -33,6 +33,7 @@ public class ProcessViewModel : ObservableObject {
     private ElementOverlay _trackHighlighterOverlay;
     private readonly List<ElementViewModel> _matches = [];
     private int _matchIndex = -1;
+    private bool _isHoverSelecting;
 
     public ProcessViewModel(AutomationBase automation, int processId, IntPtr mainWindowHandle, InternalLogger logger) {
         _logger = logger;
@@ -42,6 +43,10 @@ public class ProcessViewModel : ObservableObject {
 
         _trackHighlighterOverlay = CreateTrackHighlighterOverlay();
 
+        // Select is not one of the exclusive radio modes: it starts on and runs alongside Hover / Focus / AUTO.
+        EnableHighLightSelectionMode = true;
+        HoverManager.OwnProcessHit += OnHoverHitOwnProcess;
+
         WindowTitle = $"Process: [{processId}] '{(processId != 0
             ? _automation.FromHandle(mainWindowHandle)?.Properties.Name ?? "N/A"
             : "Desktop")}'";
@@ -49,7 +54,12 @@ public class ProcessViewModel : ObservableObject {
         HoverManager.AddListener(_windowHandle,
                                  x => {
                                      if (EnableHoverMode) {
-                                         ElementToSelectChanged(x);
+                                         _isHoverSelecting = true;
+                                         try {
+                                             ElementToSelectChanged(x);
+                                         } finally {
+                                             _isHoverSelecting = false;
+                                         }
                                      }
                                  });
         HoverManager.Disable(_windowHandle);
@@ -92,6 +102,7 @@ public class ProcessViewModel : ObservableObject {
 
         ClosingCommand = new RelayCommand(_ => {
             HoverManager.RemoveListener(_windowHandle);
+            HoverManager.OwnProcessHit -= OnHoverHitOwnProcess;
             _trackHighlighterOverlay?.Dispose();
             _focusTrackingMode?.Stop();
             _focusTrackingMode = null;
@@ -189,10 +200,8 @@ public class ProcessViewModel : ObservableObject {
         get => GetProperty<ElementViewModel>();
         set {
             if (SetProperty(value)) {
+                UpdateSelectionHighlight();
                 if (value != null) {
-                    if (EnableHighLightSelectionMode || EnableFocusTrackingMode || IsAutoRecording) {
-                        TrackSelectedItem(value);
-                    }
                     Task.Run(() => ReadPatternsForSelectedItem(value.AutomationElement));
                 }
             }
@@ -207,11 +216,17 @@ public class ProcessViewModel : ObservableObject {
         }
     }
 
+    /// <summary>
+    ///     Select: highlight the selected element in the target app. An independent toggle (on by default), not part
+    ///     of the Hover / Focus radio group, so it does not go through <see cref="SetMode" /> and never restarts focus
+    ///     tracking.
+    /// </summary>
     public bool EnableHighLightSelectionMode {
         get => GetProperty<bool>();
         set {
-            SetProperty(value);
-            SetMode();
+            if (SetProperty(value)) {
+                UpdateSelectionHighlight();
+            }
         }
     }
 
@@ -544,7 +559,6 @@ public class ProcessViewModel : ObservableObject {
 
     private void SetMode() {
         HoverManager.Disable(_windowHandle);
-        _trackHighlighterOverlay?.Dispose();
         _focusTrackingMode?.Stop();
 
         // Auto-recording always needs focus tracking, regardless of the radio selection
@@ -552,14 +566,29 @@ public class ProcessViewModel : ObservableObject {
             _focusTrackingMode?.Start();
         }
 
-        if (new[] { EnableHoverMode, EnableHighLightSelectionMode, EnableFocusTrackingMode }.Count(x => x) == 1) {
-            if (EnableHighLightSelectionMode || EnableFocusTrackingMode) {
-                if (SelectedItem != null) {
-                    TrackSelectedItem(SelectedItem);
-                }
-            } else if (EnableHoverMode) {
-                HoverManager.Enable(_windowHandle);
-            }
+        if (EnableHoverMode) {
+            HoverManager.Enable(_windowHandle);
+        }
+
+        UpdateSelectionHighlight();
+    }
+
+    /// <summary>
+    ///     Shows the selection overlay on <see cref="SelectedItem" /> while Select is on. A selection made by Ctrl-hover
+    ///     gets none: HoverManager already draws its own overlay there, and the selection overlay stacked on top would
+    ///     be what the next hover probe hits.
+    /// </summary>
+    private void UpdateSelectionHighlight() {
+        _trackHighlighterOverlay?.Dispose();
+
+        if (EnableHighLightSelectionMode && !_isHoverSelecting && SelectedItem != null) {
+            TrackSelectedItem(SelectedItem);
+        }
+    }
+
+    private void OnHoverHitOwnProcess(System.Drawing.Point screenPoint) {
+        if (_trackHighlighterOverlay?.Covers(screenPoint) == true) {
+            _trackHighlighterOverlay.Dispose();
         }
     }
 
@@ -632,7 +661,6 @@ public class ProcessViewModel : ObservableObject {
                 if (vm.IsMatch) _matches.Add(vm);
             }
             if (hasQuery && _matches.Count > 0) {
-                EnableHighLightSelectionMode = true;
                 _matchIndex = 0;
                 SelectedItem = _matches[0];
                 HasMatches = true;

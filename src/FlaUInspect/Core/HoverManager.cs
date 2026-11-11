@@ -31,6 +31,13 @@ public static class HoverManager {
 
     public static bool IsInitialized => _automationBase != null && _elementOverlayFunc != null;
 
+    /// <summary>
+    ///     Raised on the UI thread when a Ctrl-hover probe lands on a window of this process (the inspector itself or
+    ///     one of its overlays). The selection overlay sits on top of the element it marks, so it has to get out of
+    ///     the way here, or that element could not be hovered while it is highlighted.
+    /// </summary>
+    public static event Action<Point>? OwnProcessHit;
+
     private static void Refresh() {
         if (EnabledListeners.Count == 0) {
             _elementOverlay?.Dispose();
@@ -47,6 +54,10 @@ public static class HoverManager {
                 if (automationElement == null || automationElement?.Properties.ProcessId == Environment.ProcessId) {
                     _elementOverlay?.Dispose();
                     _hoveredElement = null;
+
+                    if (automationElement != null) {
+                        OwnProcessHit?.Invoke(screenPos);
+                    }
                     return;
                 }
 
