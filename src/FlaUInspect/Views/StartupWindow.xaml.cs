@@ -48,7 +48,7 @@ public partial class StartupWindow {
 
             _logger.LogInformation($"Open process window: pid {processWindowInfo.ProcessId}, hwnd 0x{processWindowInfo.MainWindowHandle.ToInt64():X}, "
                                    + $"'{processWindowInfo.WindowTitle}', {automationBase.GetType().Name}");
-            HoverMouseInitialize();
+            HoverMouseInitialize(automationBase);
             ProcessViewModel processViewModel = new (automationBase, processWindowInfo.ProcessId, processWindowInfo.MainWindowHandle, _logger);
 
             ProcessWindow processWindow = new () { DataContext = processViewModel };
@@ -58,9 +58,11 @@ public partial class StartupWindow {
         }
     }
 
-    private void HoverMouseInitialize() {
+    private void HoverMouseInitialize(AutomationBase automationBase) {
         if (!HoverManager.IsInitialized) {
-            HoverManager.Initialize(new UIA3Automation(), () => App.FlaUiAppOptions.HoverOverlay(), _logger);
+            HoverManager.Initialize(automationBase, () => App.FlaUiAppOptions.HoverOverlay(), _logger);
+        } else {
+            HoverManager.SetAutomation(automationBase);
         }
     }
 

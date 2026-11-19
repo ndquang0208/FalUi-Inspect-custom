@@ -633,6 +633,7 @@ public class ProcessViewModel : ObservableObject {
         }
 
         if (EnableHoverMode) {
+            HoverManager.SetAutomation(_automation);
             HoverManager.Enable(_windowHandle);
         }
 
@@ -923,21 +924,40 @@ public class ProcessViewModel : ObservableObject {
         IEnumerable<ElementViewModel> viewModels = Elements;
         ElementViewModel? nextElementVm = null;
         ElementViewModel? parentVm = null;
+        ElementViewModel? lastFoundVm = null;
 
         while (pathToRoot.Count > 0) {
             AutomationElement elementOnPath = pathToRoot.Pop();
             nextElementVm = FindElement(viewModels, elementOnPath);
 
-            // Parent was expanded before this element existed (popup/dropdown opened later): reload its children.
+            // If parentVm is already an interactive leaf control (e.g. Button) and elementOnPath is an inner
+            // RawView graphic/text part not present in ControlView, keep parentVm selected.
+            if (nextElementVm == null && parentVm != null && HoverManager.IsLeafInteractiveControl(parentVm.ControlType)) {
+                nextElementVm = parentVm;
+                break;
+            }
+
+            // Parent was expanded before this element existed (popup/dropdown/floating button appeared later): reload its children.
             if (nextElementVm == null && parentVm is { IsExpanded: true }) {
                 CollapseElement(parentVm);
                 ExpandElement(parentVm);
                 nextElementVm = FindElement(viewModels, elementOnPath);
             }
 
+            // If elementOnPath is a custom RawView control (IsControlElement=false) inside a container parentVm,
+            // insert it dynamically under parentVm so it can still be inspected and selected.
+            if (nextElementVm == null && parentVm != null) {
+                nextElementVm = InsertRawChildElement(parentVm, elementOnPath);
+            }
+
+            if (nextElementVm == null) {
+                break;
+            }
+
+            lastFoundVm = nextElementVm;
             parentVm = nextElementVm;
 
-            if (nextElementVm != null && (forceExpand || !nextElementVm.IsExpanded)) {
+            if (forceExpand || !nextElementVm.IsExpanded) {
                 if (pathToRoot.Count != 0) {
                     nextElementVm.IsExpanded = true;
                 }
@@ -949,7 +969,24 @@ public class ProcessViewModel : ObservableObject {
             }
         }
 
-        SelectedItem = nextElementVm;
+        SelectedItem = nextElementVm ?? lastFoundVm;
+    }
+
+    private ElementViewModel? InsertRawChildElement(ElementViewModel parentVm, AutomationElement rawChild) {
+        int parentIndex = Elements.IndexOf(parentVm);
+        if (parentIndex < 0) {
+            return null;
+        }
+
+        parentVm.IsExpanded = true;
+        ElementViewModel rawVm = new (rawChild, parentVm, parentVm.Level + 1, _logger);
+        int insertIndex = parentIndex + 1;
+        while (insertIndex < Elements.Count && IsDescendantOf(Elements[insertIndex], parentVm)) {
+            insertIndex++;
+        }
+
+        Elements.Insert(insertIndex, rawVm);
+        return rawVm;
     }
 
     // Popups, drop-downs and dialogs are separate top-level windows of the process, so they are not under

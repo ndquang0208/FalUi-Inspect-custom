@@ -6,6 +6,11 @@ using FlaUI.Core.Overlay;
 namespace FlaUInspect.Core;
 
 public class ElementOverlay : IDisposable {
+    private const int GwlExStyle = -20;
+    private const int WsExTransparent = 0x00000020;
+    private const int WsExToolWindow = 0x00000080;
+    private const int WsExLayered = 0x00080000;
+    private const int WsExNoActivate = 0x08000000;
 
     private OverlayRectangleForm[] _overlayRectangleFormList = [];
     private Rectangle[] _shownRectangles = [];
@@ -86,16 +91,27 @@ public class ElementOverlay : IDisposable {
         foreach (Rectangle rectangle1 in rectangles) {
             OverlayRectangleForm overlayRectangleForm1 = new ();
             overlayRectangleForm1.BackColor = color1;
-            overlayRectangleForm1.Opacity = Configuration.Color.A / 255d;
+            // WinForms strips WS_EX_LAYERED when Opacity == 1.0, and without WS_EX_LAYERED, WS_EX_TRANSPARENT
+            // no longer makes the window hit-test transparent to WindowFromPoint / UIA ElementFromPoint.
+            overlayRectangleForm1.Opacity = Math.Min(Configuration.Color.A / 255d, 0.99d);
             OverlayRectangleForm overlayRectangleForm2 = overlayRectangleForm1;
             rectangleForms.Add(overlayRectangleForm2);
-            SetWindowPos(overlayRectangleForm2.Handle, new IntPtr(-1), rectangle1.X, rectangle1.Y, rectangle1.Width, rectangle1.Height, 16 /*0x10*/);
-            ShowWindow(overlayRectangleForm2.Handle, 8);
+            IntPtr handle = overlayRectangleForm2.Handle;
+            int exStyle = GetWindowLong(handle, GwlExStyle);
+            SetWindowLong(handle, GwlExStyle, exStyle | WsExLayered | WsExTransparent | WsExToolWindow | WsExNoActivate);
+            SetWindowPos(handle, new IntPtr(-1), rectangle1.X, rectangle1.Y, rectangle1.Width, rectangle1.Height, 16 /*0x10*/);
+            ShowWindow(handle, 8);
         }
 
         _overlayRectangleFormList = rectangleForms.ToArray();
         _shownRectangles = rectangles;
     }
+
+    [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+    private static extern int GetWindowLong(IntPtr hWnd, int nIndex);
+
+    [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+    private static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
 
     [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]

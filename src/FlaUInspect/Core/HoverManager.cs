@@ -1,7 +1,9 @@
+using System.Drawing;
 using System.Runtime.InteropServices;
 using System.Windows.Input;
 using System.Windows.Threading;
 using FlaUI.Core;
+using FlaUI.Core.Definitions;
 using FlaUInspect.Core.Logger;
 using AutomationElement = FlaUI.Core.AutomationElements.AutomationElement;
 using Mouse = FlaUI.Core.Input.Mouse;
@@ -139,6 +141,238 @@ public static class HoverManager {
         return IntPtr.Zero;
     }
 
+    public static bool IsLeafInteractiveControl(ControlType controlType) {
+        return controlType is ControlType.Button
+            or ControlType.SplitButton
+            or ControlType.CheckBox
+            or ControlType.RadioButton
+            or ControlType.Hyperlink
+            or ControlType.MenuItem
+            or ControlType.Edit
+            or ControlType.Slider
+            or ControlType.Spinner
+            or ControlType.ProgressBar
+            or ControlType.Thumb;
+    }
+
+    private static bool IsContainerOrListLike(ControlType controlType) {
+        return controlType is ControlType.List
+            or ControlType.ListItem
+            or ControlType.DataGrid
+            or ControlType.DataItem
+            or ControlType.Table
+            or ControlType.Tree
+            or ControlType.TreeItem
+            or ControlType.Pane
+            or ControlType.Group
+            or ControlType.Custom
+            or ControlType.Window
+            or ControlType.Document
+            or ControlType.ScrollBar;
+    }
+
+    private static ControlType TryGetControlType(AutomationElement element) {
+        try {
+            if (element.Properties.ControlType.TryGetValue(out ControlType ct)) {
+                return ct;
+            }
+        } catch {
+            // ignored
+        }
+        return ControlType.Unknown;
+    }
+
+    private static Rectangle TryGetBoundingRectangle(AutomationElement element) {
+        try {
+            if (element.Properties.BoundingRectangle.TryGetValue(out Rectangle rect)) {
+                return rect;
+            }
+        } catch {
+            // ignored
+        }
+        return Rectangle.Empty;
+    }
+
+    private static bool IsElementOffscreen(AutomationElement element) {
+        try {
+            if (element.Properties.IsOffscreen.TryGetValue(out bool offscreen)) {
+                return offscreen;
+            }
+        } catch {
+            // ignored
+        }
+        return false;
+    }
+
+    private static long Area(Rectangle rect) {
+        return rect.Width > 0 && rect.Height > 0 ? (long)rect.Width * rect.Height : long.MaxValue;
+    }
+
+    /// <summary>
+    ///     Refines the raw element returned by UIA <c>FromPoint</c>:
+    ///     1. If <c>FromPoint</c> hit a non-control inner template part (e.g. an icon/path/text inside a Button),
+    ///        walk up to the owning leaf interactive control in ControlView.
+    ///     2. If <c>FromPoint</c> hit a List / ListItem / container underneath a floating overlay control (such as a
+    ///        "scroll to bottom" button overlaid on a list), scan recent sibling controls in reverse Z-order to find
+    ///        the floating control covering <paramref name="screenPos" />.
+    ///     3. If the element is a container, drill down to the smallest visible child covering <paramref name="screenPos" />.
+    /// </summary>
+    private static AutomationElement RefineHoveredElement(AutomationElement element, Point screenPos, int processId) {
+        if (_automationBase == null) {
+            return element;
+        }
+
+        try {
+            ITreeWalker controlWalker = _automationBase.TreeWalkerFactory.GetControlViewWalker();
+            AutomationElement current = NormalizeToControlParentIfInnerPart(element, controlWalker, processId);
+            Rectangle currentRect = TryGetBoundingRectangle(current);
+            ControlType currentType = TryGetControlType(current);
+
+            if (IsContainerOrListLike(currentType)) {
+                AutomationElement? overlaySibling = FindOverlaySiblingAtPoint(current, currentRect, currentType, screenPos, controlWalker, processId);
+                if (overlaySibling != null) {
+                    current = overlaySibling;
+                    currentRect = TryGetBoundingRectangle(current);
+                }
+            }
+
+            for (int depth = 0; depth < 3; depth++) {
+                if (IsLeafInteractiveControl(TryGetControlType(current))) {
+                    break;
+                }
+
+                AutomationElement? smallerChild = FindSmallestChildAtPoint(current, currentRect, screenPos, controlWalker);
+                if (smallerChild == null) {
+                    break;
+                }
+
+                current = smallerChild;
+                currentRect = TryGetBoundingRectangle(current);
+            }
+
+            return current;
+        } catch {
+            return element;
+        }
+    }
+
+    private static AutomationElement NormalizeToControlParentIfInnerPart(AutomationElement element, ITreeWalker controlWalker, int processId) {
+        try {
+            if (element.Properties.IsControlElement.TryGetValue(out bool isControl) && !isControl) {
+                AutomationElement? controlParent = controlWalker.GetParent(element);
+                if (controlParent != null
+                    && controlParent.Properties.ProcessId.TryGetValue(out int parentPid)
+                    && parentPid == processId
+                    && IsLeafInteractiveControl(TryGetControlType(controlParent))) {
+                    return controlParent;
+                }
+            }
+        } catch {
+            // ignored
+        }
+        return element;
+    }
+
+    private static AutomationElement? FindOverlaySiblingAtPoint(
+        AutomationElement current,
+        Rectangle currentRect,
+        ControlType currentType,
+        Point screenPos,
+        ITreeWalker walker,
+        int processId) {
+        long currentArea = Area(currentRect);
+        AutomationElement branch = current;
+
+        for (int level = 0; level < 2; level++) {
+            AutomationElement? parent;
+            try {
+                parent = walker.GetParent(branch);
+            } catch {
+                break;
+            }
+
+            if (parent == null
+                || !parent.Properties.ProcessId.TryGetValue(out int parentPid)
+                || parentPid != processId) {
+                break;
+            }
+
+            long parentArea = Area(TryGetBoundingRectangle(parent));
+            AutomationElement? bestCandidate = null;
+            long bestArea = currentArea;
+
+            try {
+                AutomationElement? child = walker.GetLastChild(parent);
+                int scanned = 0;
+                while (child != null && scanned < 20) {
+                    scanned++;
+                    if (!child.Equals(branch) && !child.Equals(current)) {
+                        ControlType childType = TryGetControlType(child);
+                        bool isRowItem = childType is ControlType.ListItem or ControlType.DataItem or ControlType.TreeItem;
+                        if (!isRowItem && !IsElementOffscreen(child)) {
+                            Rectangle childRect = TryGetBoundingRectangle(child);
+                            if (childRect.Width > 0 && childRect.Height > 0 && childRect.Contains(screenPos)) {
+                                long childArea = Area(childRect);
+                                bool isOverlayOnList = (currentType is ControlType.List or ControlType.ListItem or ControlType.DataGrid or ControlType.DataItem or ControlType.Table)
+                                                       && childArea < parentArea / 2;
+                                if (childArea < bestArea || (bestCandidate == null && isOverlayOnList)) {
+                                    bestCandidate = child;
+                                    bestArea = childArea;
+                                }
+                            }
+                        }
+                    }
+
+                    child = walker.GetPreviousSibling(child);
+                }
+            } catch {
+                // ignored
+            }
+
+            if (bestCandidate != null) {
+                return bestCandidate;
+            }
+
+            branch = parent;
+        }
+
+        return null;
+    }
+
+    private static AutomationElement? FindSmallestChildAtPoint(
+        AutomationElement parent,
+        Rectangle parentRect,
+        Point screenPos,
+        ITreeWalker walker) {
+        long parentArea = Area(parentRect);
+        AutomationElement? bestChild = null;
+        long bestArea = parentArea;
+
+        try {
+            AutomationElement? child = walker.GetLastChild(parent);
+            int scanned = 0;
+            while (child != null && scanned < 25) {
+                scanned++;
+                if (!IsElementOffscreen(child)) {
+                    Rectangle childRect = TryGetBoundingRectangle(child);
+                    if (childRect.Width > 0 && childRect.Height > 0 && childRect.Contains(screenPos)) {
+                        long childArea = Area(childRect);
+                        if (childArea < bestArea || (bestChild == null && childArea <= parentArea)) {
+                            bestChild = child;
+                            bestArea = childArea;
+                        }
+                    }
+                }
+
+                child = walker.GetPreviousSibling(child);
+            }
+        } catch {
+            // ignored
+        }
+
+        return bestChild;
+    }
+
     private static void Refresh() {
         if (EnabledListeners.Count == 0) {
             ClearOverlay();
@@ -157,18 +391,26 @@ public static class HoverManager {
                 int elementProcessId = automationElement?.Properties.ProcessId.ValueOrDefault ?? 0;
 
                 if (automationElement == null || elementProcessId == Environment.ProcessId) {
+                    bool hadOverlayAtPoint = _elementOverlay?.Covers(screenPos) == true;
                     ClearOverlay();
 
                     if (automationElement != null) {
                         OwnProcessHit?.Invoke(screenPos);
+                        automationElement = _automationBase?.FromPoint(screenPos);
+                        elementProcessId = automationElement?.Properties.ProcessId.ValueOrDefault ?? 0;
                     }
-                    return;
+
+                    if (automationElement == null || elementProcessId == Environment.ProcessId) {
+                        return;
+                    }
                 }
 
                 if (elementProcessId > 0 && !IsProcessAlive(elementProcessId)) {
                     ClearOverlay();
                     return;
                 }
+
+                automationElement = RefineHoveredElement(automationElement, screenPos, elementProcessId);
 
                 if (_hoveredElement == null || !automationElement.Equals(_hoveredElement) || _elementOverlay == null) {
                     ClearOverlay();
@@ -243,6 +485,12 @@ public static class HoverManager {
         _automationBase = automation;
         _logger = logger;
         _elementOverlayFunc = elementOverlayFunc;
+    }
+
+    public static void SetAutomation(AutomationBase? automation) {
+        if (automation != null) {
+            _automationBase = automation;
+        }
     }
 
     [DllImport("user32.dll")]
