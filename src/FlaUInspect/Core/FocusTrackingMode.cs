@@ -1,4 +1,4 @@
-﻿using FlaUI.Core;
+using FlaUI.Core;
 using FlaUI.Core.AutomationElements;
 using FlaUI.Core.EventHandlers;
 using Application = System.Windows.Application;
@@ -16,15 +16,26 @@ public class FocusTrackingMode(AutomationBase? automation, Action<AutomationElem
     }
 
     public void Stop() {
-        if (_eventHandler != null) {
-            automation?.UnregisterFocusChangedEvent(_eventHandler);
+        FocusChangedEventHandlerBase? handler = Interlocked.Exchange(ref _eventHandler, null);
+        if (handler != null) {
+            Task.Run(() => {
+                try {
+                    automation?.UnregisterFocusChangedEvent(handler);
+                } catch {
+                    // ignored
+                }
+            });
         }
     }
 
     private void OnFocusChanged(AutomationElement? automationElement) {
-        // Skip items in the current process
-        // Like Inspect itself or the overlay window
-        if (automationElement?.Properties.ProcessId == Environment.ProcessId) {
+        try {
+            // Skip items in the current process
+            // Like Inspect itself or the overlay window
+            if (automationElement?.Properties.ProcessId == Environment.ProcessId) {
+                return;
+            }
+        } catch {
             return;
         }
 

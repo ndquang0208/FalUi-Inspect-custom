@@ -17,6 +17,8 @@ public class ElementOverlay : IDisposable {
 
     public ElementOverlayConfiguration Configuration { get; }
 
+    public bool IsVisible => _overlayRectangleFormList.Length > 0;
+
     public void Dispose() {
         Hide();
     }
@@ -49,9 +51,13 @@ public class ElementOverlay : IDisposable {
 
     public void Hide() {
         foreach (OverlayRectangleForm overlayRectangleForm in _overlayRectangleFormList) {
-            overlayRectangleForm.Hide();
-            overlayRectangleForm.Close();
-            overlayRectangleForm.Dispose();
+            try {
+                overlayRectangleForm.Hide();
+                overlayRectangleForm.Close();
+                overlayRectangleForm.Dispose();
+            } catch {
+                // ignored
+            }
         }
         _overlayRectangleFormList = [];
         _shownRectangles = [];
@@ -67,6 +73,11 @@ public class ElementOverlay : IDisposable {
     }
 
     public void Show(Rectangle rectangle) {
+        Hide();
+        if (rectangle.Width <= 0 || rectangle.Height <= 0) {
+            return;
+        }
+
         Color color1 = Color.FromArgb(255, Configuration.Color.R, Configuration.Color.G, Configuration.Color.B);
         Rectangle[] rectangles = Configuration.RectangleFactory?.Invoke(Configuration, rectangle) ?? BoundRectangleFactory(Configuration, rectangle);
 

@@ -31,6 +31,9 @@ public class ProcessViewModel : ObservableObject {
     private PatternItemsFactory? _patternItemsFactory;
     private AutomationElement? _rootElement;
     private ElementOverlay _trackHighlighterOverlay;
+    private readonly System.Windows.Threading.DispatcherTimer _targetAliveTimer;
+    private IntPtr _trackedWindowHandle;
+    private IntPtr _trackedRootWindowHandle;
     private readonly List<ElementViewModel> _matches = [];
     private int _matchIndex = -1;
     private bool _isHoverSelecting;
@@ -42,14 +45,17 @@ public class ProcessViewModel : ObservableObject {
         _windowHandle = mainWindowHandle;
 
         _trackHighlighterOverlay = CreateTrackHighlighterOverlay();
+        _targetAliveTimer = new System.Windows.Threading.DispatcherTimer {
+            Interval = TimeSpan.FromMilliseconds(300)
+        };
+        _targetAliveTimer.Tick += (_, _) => CheckTargetAlive();
+        _targetAliveTimer.Start();
 
         // Select is not one of the exclusive radio modes: it starts on and runs alongside Hover / Focus / AUTO.
         EnableHighLightSelectionMode = true;
         HoverManager.OwnProcessHit += OnHoverHitOwnProcess;
 
-        WindowTitle = $"Process: [{processId}] '{(processId != 0
-            ? _automation.FromHandle(mainWindowHandle)?.Properties.Name ?? "N/A"
-            : "Desktop")}'";
+        WindowTitle = ResolveWindowTitle(processId, mainWindowHandle);
 
         HoverManager.AddListener(_windowHandle,
                                  x => {
@@ -73,15 +79,18 @@ public class ProcessViewModel : ObservableObject {
             if (SelectedItem?.AutomationElement == null) {
                 return;
             }
-            Bitmap capturedImage = SelectedItem.AutomationElement.Capture();
-            SaveFileDialog saveDialog = new () {
-                Filter = "Png file (*.png)|*.png"
-            };
+            try {
+                using Bitmap capturedImage = SelectedItem.AutomationElement.Capture();
+                SaveFileDialog saveDialog = new () {
+                    Filter = "Png file (*.png)|*.png"
+                };
 
-            if (saveDialog.ShowDialog() == true) {
-                capturedImage.Save(saveDialog.FileName, ImageFormat.Png);
+                if (saveDialog.ShowDialog() == true) {
+                    capturedImage.Save(saveDialog.FileName, ImageFormat.Png);
+                }
+            } catch (Exception e) {
+                _logger?.LogError(e.ToString());
             }
-            capturedImage.Dispose();
         });
 
         CurrentElementSaveStateCommand = new RelayCommand(_ => {
@@ -101,9 +110,14 @@ public class ProcessViewModel : ObservableObject {
         });
 
         ClosingCommand = new RelayCommand(_ => {
+            _targetAliveTimer.Stop();
+            HoverManager.Disable(_windowHandle);
             HoverManager.RemoveListener(_windowHandle);
+            HoverManager.ClearOverlay();
             HoverManager.OwnProcessHit -= OnHoverHitOwnProcess;
             _trackHighlighterOverlay?.Dispose();
+            _trackedWindowHandle = IntPtr.Zero;
+            _trackedRootWindowHandle = IntPtr.Zero;
             _focusTrackingMode?.Stop();
             _focusTrackingMode = null;
         });
@@ -544,15 +558,67 @@ public class ProcessViewModel : ObservableObject {
         return App.FlaUiAppOptions.SelectionOverlay() ?? App.FlaUiAppOptions.DefaultOverlay()!;
     }
 
+    private IntPtr ResolveElementWindowHandle(ElementViewModel item) {
+        ElementViewModel? current = item;
+        while (current != null) {
+            try {
+                if (current.AutomationElement != null
+                    && current.AutomationElement.Properties.NativeWindowHandle.TryGetValue(out IntPtr hwnd)
+                    && hwnd != IntPtr.Zero) {
+                    return hwnd;
+                }
+            } catch {
+                // ignored
+            }
+            current = current.Parent;
+        }
+
+        return _windowHandle;
+    }
+
+    private void CheckTargetAlive() {
+        if (_trackHighlighterOverlay?.IsVisible != true) {
+            return;
+        }
+
+        if ((_processId > 0 && !HoverManager.IsProcessAlive(_processId))
+            || (_windowHandle != IntPtr.Zero && !HoverManager.IsWindowAliveAndVisible(_windowHandle))
+            || (_trackedWindowHandle != IntPtr.Zero && !HoverManager.IsWindowAliveAndVisible(_trackedWindowHandle))
+            || (_trackedRootWindowHandle != IntPtr.Zero && !HoverManager.IsWindowAliveAndVisible(_trackedRootWindowHandle))) {
+            _trackHighlighterOverlay.Dispose();
+            _trackedWindowHandle = IntPtr.Zero;
+            _trackedRootWindowHandle = IntPtr.Zero;
+        }
+    }
+
     private void TrackSelectedItem(ElementViewModel item) {
         if (item.AutomationElement != null) {
             _trackHighlighterOverlay?.Dispose();
+            _trackedWindowHandle = IntPtr.Zero;
+            _trackedRootWindowHandle = IntPtr.Zero;
+
+            if ((_processId > 0 && !HoverManager.IsProcessAlive(_processId))
+                || (_windowHandle != IntPtr.Zero && !HoverManager.IsWindowAliveAndVisible(_windowHandle))) {
+                return;
+            }
+
+            IntPtr elementHwnd = ResolveElementWindowHandle(item);
+            IntPtr rootHwnd = HoverManager.GetRootWindow(elementHwnd);
+            if ((elementHwnd != IntPtr.Zero && !HoverManager.IsWindowAliveAndVisible(elementHwnd))
+                || (rootHwnd != IntPtr.Zero && !HoverManager.IsWindowAliveAndVisible(rootHwnd))) {
+                return;
+            }
+
             _trackHighlighterOverlay = CreateTrackHighlighterOverlay();
 
             try {
                 _trackHighlighterOverlay.Show(item.AutomationElement.Properties.BoundingRectangle.Value);
-            } catch (Exception e) {
+                _trackedWindowHandle = elementHwnd;
+                _trackedRootWindowHandle = rootHwnd;
+            } catch {
                 _trackHighlighterOverlay?.Dispose();
+                _trackedWindowHandle = IntPtr.Zero;
+                _trackedRootWindowHandle = IntPtr.Zero;
             }
         }
     }
@@ -580,6 +646,12 @@ public class ProcessViewModel : ObservableObject {
     /// </summary>
     private void UpdateSelectionHighlight() {
         _trackHighlighterOverlay?.Dispose();
+        _trackedWindowHandle = IntPtr.Zero;
+        _trackedRootWindowHandle = IntPtr.Zero;
+
+        if (!_isHoverSelecting) {
+            HoverManager.ClearOverlay();
+        }
 
         if (EnableHighLightSelectionMode && !_isHoverSelecting && SelectedItem != null) {
             TrackSelectedItem(SelectedItem);
@@ -595,8 +667,74 @@ public class ProcessViewModel : ObservableObject {
     public event Action? CopiedNotificationCurrentElementSaveStateRequested;
     public event Action CopiedNotificationRequested;
 
+    private string ResolveWindowTitle(int processId, IntPtr mainWindowHandle) {
+        if (processId == 0) {
+            return "Process: [0] 'Desktop'";
+        }
+
+        string windowName = "N/A";
+        try {
+            if (HoverManager.IsProcessAlive(processId)
+                && (mainWindowHandle == IntPtr.Zero || HoverManager.IsWindowOpen(mainWindowHandle))) {
+                AutomationElement? element = _automation.FromHandle(mainWindowHandle);
+                if (element != null && element.Properties.Name.TryGetValue(out string? name) && !string.IsNullOrEmpty(name)) {
+                    windowName = name;
+                }
+            }
+        } catch {
+            // ignored
+        }
+
+        return $"Process: [{processId}] '{windowName}'";
+    }
+
+    private bool IsTargetClosed() {
+        if (_processId > 0 && !HoverManager.IsProcessAlive(_processId)) {
+            return true;
+        }
+
+        if (_windowHandle != IntPtr.Zero && !HoverManager.IsWindowOpen(_windowHandle)) {
+            return true;
+        }
+
+        return false;
+    }
+
+    private void HandleTargetClosedOnRefresh() {
+        _logger?.LogInformation($"Target app closed (pid {_processId}, hwnd 0x{_windowHandle.ToInt64():X}); closing DOM window and refreshing main window.");
+
+        System.Windows.Threading.Dispatcher? dispatcher = System.Windows.Application.Current?.Dispatcher;
+        if (dispatcher == null) {
+            return;
+        }
+
+        dispatcher.Invoke(() => {
+            System.Windows.Window? domWindow = System.Windows.Application.Current.Windows
+                .OfType<System.Windows.Window>()
+                .FirstOrDefault(w => ReferenceEquals(w.DataContext, this));
+            domWindow?.Close();
+
+            if (System.Windows.Application.Current.MainWindow is Views.StartupWindow startupWindow) {
+                startupWindow.Show();
+                if (startupWindow.WindowState == WindowState.Minimized) {
+                    startupWindow.WindowState = WindowState.Normal;
+                }
+                startupWindow.Activate();
+
+                if (startupWindow.DataContext is StartupViewModel startupViewModel) {
+                    _ = startupViewModel.Init();
+                }
+            }
+        });
+    }
+
     public void Initialize() {
         _logger?.LogInformation($"Load tree (open / Refresh): pid {_processId}, hwnd 0x{_windowHandle.ToInt64():X}");
+        if (IsTargetClosed()) {
+            HandleTargetClosedOnRefresh();
+            return;
+        }
+
         PatternItemsFactory patternItemsFactory = new (_automation);
 
         AutomationElement? rootElement;
@@ -606,10 +744,23 @@ public class ProcessViewModel : ObservableObject {
                 ? _automation.GetDesktop()
                 : _automation.FromHandle(_windowHandle);
 
+            if (rootElement == null || (_windowHandle != IntPtr.Zero && !IsAlive(rootElement))) {
+                HandleTargetClosedOnRefresh();
+                return;
+            }
+
             ElementViewModel desktopViewModel = new (rootElement, null, 0, _logger);
             topChildren = desktopViewModel.LoadChildren();
         } catch (Exception ex) {
             _logger?.LogError($"Initialize UIA load failed: {ex.Message}");
+            if (IsTargetClosed() || _windowHandle != IntPtr.Zero) {
+                HandleTargetClosedOnRefresh();
+            }
+            return;
+        }
+
+        if (IsTargetClosed()) {
+            HandleTargetClosedOnRefresh();
             return;
         }
 
@@ -737,27 +888,32 @@ public class ProcessViewModel : ObservableObject {
     public void ElementToSelectChanged(AutomationElement? obj, bool forceExpand = false) {
         Stack<AutomationElement> pathToRoot = new ();
 
-        if (obj != null && !forceExpand && obj.Properties.ProcessId.ValueOrDefault != _processId) {
-            _logger?.LogWarning($"Ignored element from process {obj.Properties.ProcessId.ValueOrDefault}: inspector is attached to process {_processId}.");
-        }
-
-        while (obj != null && obj.Properties.ProcessId == _processId) {
-            // Break on circular relationship (should not happen?)
-            if (pathToRoot.Contains(obj) || obj.Equals(_rootElement)) {
-                break;
+        try {
+            if (obj != null && !forceExpand && obj.Properties.ProcessId.ValueOrDefault != _processId) {
+                _logger?.LogWarning($"Ignored element from process {obj.Properties.ProcessId.ValueOrDefault}: inspector is attached to process {_processId}.");
             }
 
-            pathToRoot.Push(obj);
+            while (obj != null && obj.Properties.ProcessId.TryGetValue(out int pid) && pid == _processId) {
+                // Break on circular relationship (should not happen?)
+                if (pathToRoot.Contains(obj) || obj.Equals(_rootElement)) {
+                    break;
+                }
 
-            if (forceExpand) {
-                break;
-            }
+                pathToRoot.Push(obj);
 
-            try {
-                obj = _treeWalker.GetParent(obj);
-            } catch (Exception ex) {
-                _logger?.LogError($"Exception: {ex.Message}");
+                if (forceExpand) {
+                    break;
+                }
+
+                try {
+                    obj = _treeWalker.GetParent(obj);
+                } catch (Exception ex) {
+                    _logger?.LogError($"Exception: {ex.Message}");
+                    break;
+                }
             }
+        } catch (Exception ex) {
+            _logger?.LogError($"Exception: {ex.Message}");
         }
 
         if (!forceExpand && pathToRoot.Count > 0) {

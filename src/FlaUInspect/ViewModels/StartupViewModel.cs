@@ -163,7 +163,12 @@ public class StartupViewModel : ObservableObject {
         } catch (OperationCanceledException) {
             // canceled - ignore
         } finally {
-            Application.Current.Dispatcher.Invoke(() => Mouse.OverrideCursor = previousCursor);
+            Application.Current.Dispatcher.Invoke(() => {
+                _topWindowOverlay?.Dispose();
+                _topWindowOverlay = null;
+                _topWindowUnderCursor = null;
+                Mouse.OverrideCursor = previousCursor;
+            });
         }
         return IntPtr.Zero;
     }
@@ -266,24 +271,61 @@ public class StartupViewModel : ObservableObject {
     }
 
     public async Task Init() {
-        IsBusy = true;
+        Application.Current.Dispatcher.Invoke(() => IsBusy = true);
         App.Logger.LogInformation("Load process list");
-        await Task.Delay(100); // Simulate some loading time;
-        int currentProcessId = Environment.ProcessId;
-        IEnumerable<ProcessWindowInfo> collection = GetChildren(_defaultAutomation.GetDesktop())
-                                                    .Where(x => !string.IsNullOrEmpty(x.Name))
-                                                    .Where(x => x.Properties.ProcessId != currentProcessId)
-                                                    .Select(x => new ProcessWindowInfo(x.Properties.ProcessId.Value,
-                                                                                       x.Name,
-                                                                                       x.Properties.NativeWindowHandle.Value))
-                                                    .ToList();
-        Processes = new ObservableCollection<ProcessWindowInfo>(collection);
-        IsBusy = false;
-        App.Logger.LogInformation($"Load process list done: {Processes.Count} windows");
-        return;
 
-        AutomationElement[] GetChildren(AutomationElement el) {
-            return IsWindowedOnly ? el.FindAllChildren(x => x.ByControlType(ControlType.Window)) : el.FindAllChildren();
+        try {
+            await Task.Delay(100); // Simulate some loading time;
+            int currentProcessId = Environment.ProcessId;
+            bool windowedOnly = IsWindowedOnly;
+
+            List<ProcessWindowInfo> collection = await Task.Run(() => {
+                List<ProcessWindowInfo> list = [];
+                AutomationElement[] children;
+                try {
+                    AutomationElement desktop = _defaultAutomation.GetDesktop();
+                    children = windowedOnly
+                        ? desktop.FindAllChildren(x => x.ByControlType(ControlType.Window))
+                        : desktop.FindAllChildren();
+                } catch (Exception ex) {
+                    App.Logger.LogError($"Load process list failed: {ex.Message}");
+                    return list;
+                }
+
+                foreach (AutomationElement child in children) {
+                    try {
+                        if (!child.Properties.Name.TryGetValue(out string? name) || string.IsNullOrEmpty(name)) {
+                            continue;
+                        }
+
+                        if (!child.Properties.ProcessId.TryGetValue(out int pid) || pid == currentProcessId) {
+                            continue;
+                        }
+
+                        if (pid > 0 && !HoverManager.IsProcessAlive(pid)) {
+                            continue;
+                        }
+
+                        IntPtr hwnd = child.Properties.NativeWindowHandle.ValueOrDefault;
+                        if (hwnd != IntPtr.Zero && !HoverManager.IsWindowOpen(hwnd)) {
+                            continue;
+                        }
+
+                        list.Add(new ProcessWindowInfo(pid, name, hwnd));
+                    } catch {
+                        // Window closed or became unavailable while enumerating
+                    }
+                }
+
+                return list;
+            });
+
+            Application.Current.Dispatcher.Invoke(() => {
+                Processes = new ObservableCollection<ProcessWindowInfo>(collection);
+            });
+            App.Logger.LogInformation($"Load process list done: {collection.Count} windows");
+        } finally {
+            Application.Current.Dispatcher.Invoke(() => IsBusy = false);
         }
     }
 

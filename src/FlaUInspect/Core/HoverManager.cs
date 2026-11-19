@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using System.Windows.Input;
 using System.Windows.Threading;
 using FlaUI.Core;
@@ -9,11 +10,19 @@ using Point = System.Drawing.Point;
 namespace FlaUInspect.Core;
 
 public static class HoverManager {
+    private const uint GaRoot = 2;
+    private const uint ProcessQueryLimitedInformation = 0x1000;
+    private const uint StillActive = 259;
+    private const int ErrorAccessDenied = 5;
+
     private static Func<ElementOverlay?>? _elementOverlayFunc;
     private static ILogger? _logger;
     private static AutomationBase? _automationBase;
     private static AutomationElement? _hoveredElement;
     private static ElementOverlay? _elementOverlay;
+    private static int _hoveredProcessId;
+    private static IntPtr _hoveredWindowHandle;
+    private static IntPtr _hoveredRootWindowHandle;
 
     private static readonly List<KeyValuePair<IntPtr, Action<AutomationElement?>>> Listeners = [];
 
@@ -38,11 +47,106 @@ public static class HoverManager {
     /// </summary>
     public static event Action<Point>? OwnProcessHit;
 
+    public static void ClearOverlay() {
+        _elementOverlay?.Dispose();
+        _elementOverlay = null;
+        _hoveredElement = null;
+        _hoveredProcessId = 0;
+        _hoveredWindowHandle = IntPtr.Zero;
+        _hoveredRootWindowHandle = IntPtr.Zero;
+    }
+
+    public static bool IsProcessAlive(int processId) {
+        if (processId <= 0) {
+            return true;
+        }
+
+        IntPtr hProcess = OpenProcess(ProcessQueryLimitedInformation, false, (uint)processId);
+        if (hProcess == IntPtr.Zero) {
+            return Marshal.GetLastWin32Error() == ErrorAccessDenied;
+        }
+
+        try {
+            return GetExitCodeProcess(hProcess, out uint exitCode) && exitCode == StillActive;
+        } finally {
+            CloseHandle(hProcess);
+        }
+    }
+
+    public static bool IsWindowOpen(IntPtr hWnd) {
+        return hWnd != IntPtr.Zero && IsWindow(hWnd) && IsWindowVisible(hWnd);
+    }
+
+    public static bool IsWindowAliveAndVisible(IntPtr hWnd) {
+        return hWnd != IntPtr.Zero && IsWindow(hWnd) && IsWindowVisible(hWnd) && !IsIconic(hWnd);
+    }
+
+    public static IntPtr GetRootWindow(IntPtr hWnd) {
+        return hWnd != IntPtr.Zero ? GetAncestor(hWnd, GaRoot) : IntPtr.Zero;
+    }
+
+    private static bool IsHoveredTargetAlive() {
+        if (_hoveredProcessId > 0 && !IsProcessAlive(_hoveredProcessId)) {
+            return false;
+        }
+
+        if (_hoveredWindowHandle != IntPtr.Zero && !IsWindowAliveAndVisible(_hoveredWindowHandle)) {
+            return false;
+        }
+
+        if (_hoveredRootWindowHandle != IntPtr.Zero && !IsWindowAliveAndVisible(_hoveredRootWindowHandle)) {
+            return false;
+        }
+
+        lock (LockObject) {
+            bool hasSpecificWindowListener = false;
+            bool anySpecificWindowAlive = false;
+            foreach (IntPtr listenerHwnd in EnabledListeners) {
+                if (listenerHwnd != IntPtr.Zero) {
+                    hasSpecificWindowListener = true;
+                    if (IsWindowAliveAndVisible(listenerHwnd)) {
+                        anySpecificWindowAlive = true;
+                        break;
+                    }
+                }
+            }
+
+            if (hasSpecificWindowListener && !anySpecificWindowAlive) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static IntPtr ResolveWindowHandle(Point screenPos, AutomationElement element) {
+        try {
+            if (element.Properties.NativeWindowHandle.TryGetValue(out IntPtr nativeHwnd) && nativeHwnd != IntPtr.Zero) {
+                return nativeHwnd;
+            }
+        } catch {
+            // ignored
+        }
+
+        IntPtr hwnd = WindowFromPoint(new POINT { X = screenPos.X, Y = screenPos.Y });
+        if (hwnd != IntPtr.Zero) {
+            GetWindowThreadProcessId(hwnd, out uint pid);
+            if (pid != (uint)Environment.ProcessId) {
+                return hwnd;
+            }
+        }
+
+        return IntPtr.Zero;
+    }
+
     private static void Refresh() {
         if (EnabledListeners.Count == 0) {
-            _elementOverlay?.Dispose();
-            _hoveredElement = null;
+            ClearOverlay();
             return;
+        }
+
+        if (_elementOverlay != null && !IsHoveredTargetAlive()) {
+            ClearOverlay();
         }
 
         if (Keyboard.Modifiers.HasFlag(ModifierKeys.Control)) {
@@ -50,10 +154,10 @@ public static class HoverManager {
 
             try {
                 AutomationElement? automationElement = _automationBase?.FromPoint(screenPos);
+                int elementProcessId = automationElement?.Properties.ProcessId.ValueOrDefault ?? 0;
 
-                if (automationElement == null || automationElement?.Properties.ProcessId == Environment.ProcessId) {
-                    _elementOverlay?.Dispose();
-                    _hoveredElement = null;
+                if (automationElement == null || elementProcessId == Environment.ProcessId) {
+                    ClearOverlay();
 
                     if (automationElement != null) {
                         OwnProcessHit?.Invoke(screenPos);
@@ -61,16 +165,35 @@ public static class HoverManager {
                     return;
                 }
 
-                if (automationElement != null && (_hoveredElement == null || !automationElement.Equals(_hoveredElement))) {
-                    _elementOverlay?.Dispose();
-                    _hoveredElement = automationElement;
+                if (elementProcessId > 0 && !IsProcessAlive(elementProcessId)) {
+                    ClearOverlay();
+                    return;
+                }
 
-                    foreach (KeyValuePair<IntPtr, Action<AutomationElement?>> keyValuePair in Listeners) {
+                if (_hoveredElement == null || !automationElement.Equals(_hoveredElement) || _elementOverlay == null) {
+                    ClearOverlay();
+                    _hoveredElement = automationElement;
+                    _hoveredProcessId = elementProcessId;
+
+                    KeyValuePair<IntPtr, Action<AutomationElement?>>[] listenersSnapshot;
+                    lock (LockObject) {
+                        listenersSnapshot = Listeners.ToArray();
+                    }
+
+                    foreach (KeyValuePair<IntPtr, Action<AutomationElement?>> keyValuePair in listenersSnapshot) {
                         try {
                             keyValuePair.Value?.Invoke(automationElement);
                         } catch {
                             // ignored
                         }
+                    }
+
+                    _hoveredWindowHandle = ResolveWindowHandle(screenPos, automationElement);
+                    _hoveredRootWindowHandle = GetRootWindow(_hoveredWindowHandle);
+
+                    if (!IsHoveredTargetAlive()) {
+                        ClearOverlay();
+                        return;
                     }
 
                     try {
@@ -80,11 +203,11 @@ public static class HoverManager {
                             _elementOverlay = elementOverlay;
                         }
                     } catch {
-                        // ignored
+                        ClearOverlay();
                     }
                 }
             } catch {
-                // ignored
+                ClearOverlay();
             }
         }
     }
@@ -97,12 +220,10 @@ public static class HoverManager {
 
     public static void RemoveListener(IntPtr id) {
         lock (LockObject) {
-            KeyValuePair<IntPtr, Action<AutomationElement?>>? pair = Listeners.FirstOrDefault(x => x.Key == id);
-
-            if (pair != null) {
-                Listeners.Remove(pair.Value);
-            }
+            Listeners.RemoveAll(x => x.Key == id);
+            EnabledListeners.Remove(id);
         }
+        ClearOverlay();
     }
 
     public static void Enable(IntPtr intPtr) {
@@ -115,11 +236,50 @@ public static class HoverManager {
         lock (LockObject) {
             EnabledListeners.Remove(intPtr);
         }
+        ClearOverlay();
     }
 
     public static void Initialize(AutomationBase? automation, Func<ElementOverlay?> elementOverlayFunc, ILogger? logger) {
         _automationBase = automation;
         _logger = logger;
         _elementOverlayFunc = elementOverlayFunc;
+    }
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool IsWindow(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool IsWindowVisible(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool IsIconic(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr WindowFromPoint(POINT point);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetAncestor(IntPtr hwnd, uint gaFlags);
+
+    [DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern IntPtr OpenProcess(uint processAccess, [MarshalAs(UnmanagedType.Bool)] bool bInheritHandle, uint processId);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetExitCodeProcess(IntPtr hProcess, out uint lpExitCode);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool CloseHandle(IntPtr hObject);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct POINT {
+        public int X;
+        public int Y;
     }
 }

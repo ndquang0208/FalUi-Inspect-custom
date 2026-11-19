@@ -1,4 +1,4 @@
-﻿using FlaUI.Core;
+using FlaUI.Core;
 using FlaUI.Core.AutomationElements;
 using FlaUI.Core.Definitions;
 using FlaUInspect.Core;
@@ -32,11 +32,40 @@ public class ElementViewModel : ObservableObject {
         AutomationElement = automationElement;
         Parent = parent;
 
-        _guidId = Guid.NewGuid().ToString() + (AutomationElement?.Properties.Name.ValueOrDefault ?? string.Empty).NormalizeString();
-        Name = (AutomationElement?.Properties.Name.ValueOrDefault ?? string.Empty).NormalizeString();
-        AutomationId = (AutomationElement?.Properties.AutomationId.ValueOrDefault ?? string.Empty).NormalizeString();
-        ControlType = AutomationElement != null && AutomationElement.Properties.ControlType.TryGetValue(out ControlType value) ? value : ControlType.Unknown;
+        string name = string.Empty;
+        string automationId = string.Empty;
+        ControlType controlType = ControlType.Unknown;
 
+        if (AutomationElement != null) {
+            try {
+                if (AutomationElement.Properties.Name.TryGetValue(out string? rawName) && rawName != null) {
+                    name = rawName.NormalizeString();
+                }
+            } catch {
+                // ignored
+            }
+
+            try {
+                if (AutomationElement.Properties.AutomationId.TryGetValue(out string? rawId) && rawId != null) {
+                    automationId = rawId.NormalizeString();
+                }
+            } catch {
+                // ignored
+            }
+
+            try {
+                if (AutomationElement.Properties.ControlType.TryGetValue(out ControlType value)) {
+                    controlType = value;
+                }
+            } catch {
+                // ignored
+            }
+        }
+
+        _guidId = Guid.NewGuid().ToString() + name;
+        Name = name;
+        AutomationId = automationId;
+        ControlType = controlType;
     }
 
     public AutomationElement? AutomationElement { get; }
@@ -69,7 +98,11 @@ public class ElementViewModel : ObservableObject {
     public string XPath {
         get {
             if (_xpathCache != null) return _xpathCache;
-            _xpathCache = AutomationElement == null ? string.Empty : Debug.GetXPathToElement(AutomationElement);
+            try {
+                _xpathCache = AutomationElement == null ? string.Empty : Debug.GetXPathToElement(AutomationElement);
+            } catch {
+                _xpathCache = string.Empty;
+            }
             return _xpathCache;
         }
     }

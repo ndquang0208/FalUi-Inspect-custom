@@ -36,6 +36,16 @@ public partial class StartupWindow {
 
     private void OpenProcessWindow(AutomationBase automationBase) {
         if (ProcessesListBox.SelectedItem is ProcessWindowInfo processWindowInfo) {
+            if ((processWindowInfo.ProcessId > 0 && !HoverManager.IsProcessAlive(processWindowInfo.ProcessId))
+                || (processWindowInfo.MainWindowHandle != IntPtr.Zero && !HoverManager.IsWindowOpen(processWindowInfo.MainWindowHandle))) {
+                _logger.LogInformation($"Target app already closed: pid {processWindowInfo.ProcessId}, hwnd 0x{processWindowInfo.MainWindowHandle.ToInt64():X}; refreshing process list.");
+                automationBase.Dispose();
+                if (DataContext is StartupViewModel startupViewModel) {
+                    _ = startupViewModel.Init();
+                }
+                return;
+            }
+
             _logger.LogInformation($"Open process window: pid {processWindowInfo.ProcessId}, hwnd 0x{processWindowInfo.MainWindowHandle.ToInt64():X}, "
                                    + $"'{processWindowInfo.WindowTitle}', {automationBase.GetType().Name}");
             HoverMouseInitialize();

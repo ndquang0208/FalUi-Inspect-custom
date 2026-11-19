@@ -1,4 +1,4 @@
-﻿using System.Drawing;
+using System.Drawing;
 using System.IO;
 using System.Reflection;
 using System.Windows;
@@ -95,7 +95,10 @@ public partial class App {
         DispatcherUnhandledException += (_, args) => FileLog.WriteFatal("Unhandled exception on the UI thread", args.Exception);
         AppDomain.CurrentDomain.UnhandledException += (_, args) => FileLog.WriteFatal("Unhandled exception", args.ExceptionObject);
         TaskScheduler.UnobservedTaskException += (_, args) => FileLog.Write("ERROR", $"Unobserved task exception:{Environment.NewLine}{args.Exception}");
-        Exit += (_, args) => FileLog.Write("INFO", $"===== FlaUInspect exited (code {args.ApplicationExitCode}) =====");
+        Exit += (_, args) => {
+            HoverManager.ClearOverlay();
+            FileLog.Write("INFO", $"===== FlaUInspect exited (code {args.ApplicationExitCode}) =====");
+        };
 
         FileLog.StartUiWatchdog(Dispatcher);
     }

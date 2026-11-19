@@ -1,4 +1,5 @@
 using System.Windows.Input;
+using FlaUInspect.Core.Logger;
 
 namespace FlaUInspect.Core;
 
@@ -53,8 +54,13 @@ public class AsyncRelayCommand : ObservableObject, ICommand {
 
         if (task != null) {
             IsRunning = true;
-            await task;
-            IsRunning = false;
+            try {
+                await task;
+            } catch (Exception ex) {
+                App.Logger.LogError($"AsyncRelayCommand failed: {ex}");
+            } finally {
+                IsRunning = false;
+            }
         }
     }
 
